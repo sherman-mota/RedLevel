@@ -1,0 +1,6 @@
+{
+  "name": "RedLevels",
+  "description": "Redmine with Flight Levels Experience. Conecte iniciativas estratégicas L3, coordinación L2 y tareas operativas L1.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
