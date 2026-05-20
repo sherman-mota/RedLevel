@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { 
   Menu, 
   Filter as FilterIcon, 
@@ -24,11 +24,20 @@ import { getMockIssues } from './mockData';
 // Component Imports
 import Sidebar from './components/Sidebar';
 import WorkspaceFilters from './components/WorkspaceFilters';
-import Overview from './components/Overview';
-import KanbanBoard from './components/KanbanBoard';
-import DependencyMap from './components/DependencyMap';
-import MetricsDashboard from './components/MetricsDashboard';
-import Settings from './components/Settings';
+
+// Lazy-loaded Component Views
+const Overview = lazy(() => import('./components/Overview'));
+const KanbanBoard = lazy(() => import('./components/KanbanBoard'));
+const DependencyMap = lazy(() => import('./components/DependencyMap'));
+const MetricsDashboard = lazy(() => import('./components/MetricsDashboard'));
+const Settings = lazy(() => import('./components/Settings'));
+
+const ViewLoader = () => (
+  <div className="w-full py-20 flex flex-col items-center justify-center space-y-3">
+    <RefreshCw className="w-8 h-8 animate-spin text-[#8a2d46]" />
+    <span className="text-xs font-bold text-[#8a2d46] animate-pulse">Carregando módulo de visualização...</span>
+  </div>
+);
 
 const STAGE_OPTIONS: KanbanStage[] = ['Backlog', 'To Do', 'In Progress', 'Done'];
 
@@ -192,7 +201,7 @@ export default function App() {
         return 'bg-[#fcf8f9] text-slate-900 theme-classic min-h-screen';
       case 'modern':
       default:
-        return 'bg-slate-50 text-slate-800 min-h-screen';
+        return 'bg-[#fafbfc] text-slate-800 min-h-screen';
     }
   };
 
@@ -232,13 +241,13 @@ export default function App() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="lg:hidden p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-500"
+              className="lg:hidden p-1.5 rounded-md hover:bg-slate-100 text-slate-500"
               title="Menu"
             >
               <Menu className="w-6 h-6" />
             </button>
             <div className="text-left">
-              <h2 className="font-extrabold text-xl tracking-tight text-slate-900 dark:text-zinc-50 font-sans">
+              <h2 className="font-extrabold text-xl tracking-tight text-slate-900 font-sans">
                 {currentTab === 'overview' && 'Overview Geral de Fluxo'}
                 {currentTab === 'l3' && 'Kanban Estratégico (L3)'}
                 {currentTab === 'l2' && 'Kanban tático de Coordenação (L2)'}
@@ -310,70 +319,72 @@ export default function App() {
         <main className="flex-1 overflow-y-auto p-6 relative">
           
           <div className="max-w-7xl mx-auto h-full">
-            {currentTab === 'overview' && (
-              <Overview 
-                issues={issues} 
-                filters={filters} 
-                config={config} 
-                onSelectIssue={setSelectedIssue}
-              />
-            )}
+            <Suspense fallback={<ViewLoader />}>
+              {currentTab === 'overview' && (
+                <Overview 
+                  issues={issues} 
+                  filters={filters} 
+                  config={config} 
+                  onSelectIssue={setSelectedIssue}
+                />
+              )}
 
-            {currentTab === 'l3' && (
-              <KanbanBoard 
-                level={FlightLevel.L3} 
-                issues={issues} 
-                filters={filters} 
-                config={config}
-                onUpdateIssue={handleUpdateIssue}
-                onSelectIssue={setSelectedIssue}
-              />
-            )}
+              {currentTab === 'l3' && (
+                <KanbanBoard 
+                  level={FlightLevel.L3} 
+                  issues={issues} 
+                  filters={filters} 
+                  config={config}
+                  onUpdateIssue={handleUpdateIssue}
+                  onSelectIssue={setSelectedIssue}
+                />
+              )}
 
-            {currentTab === 'l2' && (
-              <KanbanBoard 
-                level={FlightLevel.L2} 
-                issues={issues} 
-                filters={filters} 
-                config={config}
-                onUpdateIssue={handleUpdateIssue}
-                onSelectIssue={setSelectedIssue}
-              />
-            )}
+              {currentTab === 'l2' && (
+                <KanbanBoard 
+                  level={FlightLevel.L2} 
+                  issues={issues} 
+                  filters={filters} 
+                  config={config}
+                  onUpdateIssue={handleUpdateIssue}
+                  onSelectIssue={setSelectedIssue}
+                />
+              )}
 
-            {currentTab === 'l1' && (
-              <KanbanBoard 
-                level={FlightLevel.L1} 
-                issues={issues} 
-                filters={filters} 
-                config={config}
-                onUpdateIssue={handleUpdateIssue}
-                onSelectIssue={setSelectedIssue}
-              />
-            )}
+              {currentTab === 'l1' && (
+                <KanbanBoard 
+                  level={FlightLevel.L1} 
+                  issues={issues} 
+                  filters={filters} 
+                  config={config}
+                  onUpdateIssue={handleUpdateIssue}
+                  onSelectIssue={setSelectedIssue}
+                />
+              )}
 
-            {currentTab === 'dependencies' && (
-              <DependencyMap 
-                issues={issues} 
-                filters={filters} 
-                config={config} 
-              />
-            )}
+              {currentTab === 'dependencies' && (
+                <DependencyMap 
+                  issues={issues} 
+                  filters={filters} 
+                  config={config} 
+                />
+              )}
 
-            {currentTab === 'metrics' && (
-              <MetricsDashboard 
-                issues={issues} 
-                filters={filters} 
-                config={config} 
-              />
-            )}
+              {currentTab === 'metrics' && (
+                <MetricsDashboard 
+                  issues={issues} 
+                  filters={filters} 
+                  config={config} 
+                />
+              )}
 
-            {currentTab === 'settings' && (
-              <Settings 
-                config={config} 
-                onSaveConfig={handleSaveConfig} 
-              />
-            )}
+              {currentTab === 'settings' && (
+                <Settings 
+                  config={config} 
+                  onSaveConfig={handleSaveConfig} 
+                />
+              )}
+            </Suspense>
           </div>
 
           {/* BACKGROUND LOADER OVERLAY */}
@@ -405,7 +416,7 @@ export default function App() {
 
       {/* --- DETAIL OVERLAY SIDE PANEL (CARD DRAWER DETAIL) --- */}
       {selectedIssue && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-xs">
           {/* Dismiss Click-away area */}
           <div className="flex-1" onClick={() => setSelectedIssue(null)} />
           
@@ -563,7 +574,7 @@ export default function App() {
 
       {/* --- CREATE NEW INITIATIVE DIALOG POPUP MODAL --- */}
       {isNewIssueModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs">
           <div className="w-full max-w-xl bg-white rounded-2xl border shadow-2xl p-6 space-y-4 text-left">
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
