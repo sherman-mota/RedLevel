@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Settings as SettingsIcon, 
   Server, 
@@ -11,10 +11,11 @@ import {
   XCircle,
   Eye,
   RefreshCw,
-  Palette
+  Palette,
+  Plus
 } from 'lucide-react';
 import { RedmineConfig, KanbanStage } from '../types';
-import { testConnection } from '../api/redmine';
+import { testConnection, fetchRedmineTrackers, fetchRedmineCustomFields, DEFAULT_CONFIG } from '../api/redmine';
 
 interface SettingsProps {
   config: RedmineConfig;
@@ -28,7 +29,28 @@ export default function Settings({
   onSaveConfig
 }: SettingsProps) {
   // Local state copy
-  const [localConfig, setLocalConfig] = useState<RedmineConfig>({ ...config });
+  const [localConfig, setLocalConfig] = useState<RedmineConfig>(() => {
+    const configTrackers = config?.trackers || {};
+    const mergedTrackers = {
+      l3: Array.isArray(configTrackers.l3) ? configTrackers.l3 : (DEFAULT_CONFIG?.trackers?.l3 || []),
+      l2: Array.isArray(configTrackers.l2) ? configTrackers.l2 : (DEFAULT_CONFIG?.trackers?.l2 || []),
+      l1: Array.isArray(configTrackers.l1) ? configTrackers.l1 : (DEFAULT_CONFIG?.trackers?.l1 || []),
+    };
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...config,
+      trackers: mergedTrackers,
+      fieldsMap: {
+        ...DEFAULT_CONFIG.fieldsMap,
+        ...(config?.fieldsMap || {})
+      },
+      stagesMap: {
+        ...DEFAULT_CONFIG.stagesMap,
+        ...(config?.stagesMap || {})
+      }
+    };
+  });
   
   // Connection tester states
   const [testing, setTesting] = useState(false);
@@ -37,6 +59,57 @@ export default function Settings({
   // New status mapping creator states
   const [newRedmineStatus, setNewRedmineStatus] = useState('');
   const [newKanbanStage, setNewKanbanStage] = useState<KanbanStage>('To Do');
+
+  // Dynamic tracker states
+  const [trackers, setTrackers] = useState<string[]>([]);
+  const [loadingTrackers, setLoadingTrackers] = useState(false);
+  const [customTrackerName, setCustomTrackerName] = useState('');
+
+  // Dynamic custom fields states
+  const [customFields, setCustomFields] = useState<{ id: string; name: string }[]>([]);
+  const [loadingCustomFields, setLoadingCustomFields] = useState(false);
+
+  const loadTrackers = async (cfgToUse = localConfig) => {
+    setLoadingTrackers(true);
+    try {
+      const list = await fetchRedmineTrackers(cfgToUse);
+      // Mesclar os trackers do servidor com os mapeamentos já existentes de forma ultra-segura
+      const configTrackers = cfgToUse?.trackers || {};
+      const l3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
+      const l2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
+      const l1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
+
+      const combined = Array.from(new Set([
+        ...list,
+        ...l3,
+        ...l2,
+        ...l1
+      ]));
+      setTrackers(combined);
+    } catch (err) {
+      console.error('Erro ao carregar trackers:', err);
+    } finally {
+      setLoadingTrackers(false);
+    }
+  };
+
+  const loadCustomFields = async (cfgToUse = localConfig) => {
+    setLoadingCustomFields(true);
+    try {
+      const list = await fetchRedmineCustomFields(cfgToUse);
+      setCustomFields(list);
+    } catch (err) {
+      console.error('Erro ao carregar campos personalizados:', err);
+    } finally {
+      setLoadingCustomFields(false);
+    }
+  };
+
+  useEffect(() => {
+    // Carrega trackers e campos personalizados apenas na montagem ou quando o workspace de demonstração muda
+    loadTrackers();
+    loadCustomFields();
+  }, [localConfig.useDemoWorkspace]);
 
   const handleSave = () => {
     onSaveConfig({
@@ -65,7 +138,11 @@ export default function Settings({
           success: true,
           message: 'Conectado com sucesso ao Redmine! Suas credenciais são válidas.'
         });
-        setLocalConfig(prev => ({ ...prev, isConnected: true, useDemoWorkspace: false }));
+        const updatedConfig = { ...localConfig, isConnected: true, useDemoWorkspace: false };
+        setLocalConfig(updatedConfig);
+        // Carrega trackers e campos personalizados automaticamente com as novas credenciais válidas
+        loadTrackers(updatedConfig);
+        loadCustomFields(updatedConfig);
       } else {
         setTestResult({
           success: false,
@@ -101,15 +178,97 @@ export default function Settings({
     setLocalConfig(prev => ({ ...prev, stagesMap: updatedStages }));
   };
 
-  const updateTrackerList = (level: 'l3' | 'l2' | 'l1', csvValue: string) => {
-    const arr = csvValue.split(',').map(s => s.trim()).filter(Boolean);
-    setLocalConfig(prev => ({
-      ...prev,
-      trackers: {
-        ...prev.trackers,
-        [level]: arr
-      }
-    }));
+  const handleSetTrackerLevel = (trackerName: string, level: 'l3' | 'l2' | 'l1' | 'none') => {
+    setLocalConfig(prev => {
+      const l1 = prev.trackers.l1.filter(t => t !== trackerName);
+      const l2 = prev.trackers.l2.filter(t => t !== trackerName);
+      const l3 = prev.trackers.l3.filter(t => t !== trackerName);
+
+      if (level === 'l1') l1.push(trackerName);
+      else if (level === 'l2') l2.push(trackerName);
+      else if (level === 'l3') l3.push(trackerName);
+
+      return {
+        ...prev,
+        trackers: { l1, l2, l3 }
+      };
+    });
+  };
+
+  const handleAddCustomTracker = () => {
+    if (!customTrackerName.trim()) return;
+    const name = customTrackerName.trim();
+    if (!trackers.includes(name)) {
+      setTrackers(prev => [...prev, name]);
+    }
+    handleSetTrackerLevel(name, 'l1');
+    setCustomTrackerName('');
+  };
+
+  const renderFieldMapper = (
+    label: string, 
+    valueKey: 'blockedFlag' | 'blockedReason' | 'team' | 'groupingField', 
+    placeholder: string
+  ) => {
+    const currentValue = localConfig.fieldsMap[valueKey] || '';
+    // Check if current value matches any loaded custom field (by name or id)
+    const matchedField = customFields.find(cf => cf.id === currentValue || cf.name === currentValue);
+    const selectValue = matchedField ? (matchedField.name) : (currentValue ? '__manual__' : '');
+    
+    // Ordena os campos em ordem alfabética para facilitar a busca visual
+    const sortedCustomFields = [...customFields].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+    return (
+      <div className="space-y-2 bg-slate-50/50 p-4 rounded-xl border border-slate-150 transition-all hover:border-slate-350">
+        <div className="flex justify-between items-center">
+          <label className="text-slate-700 font-bold block text-xs">{label}</label>
+          {loadingCustomFields && <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#8a2d46]" />}
+        </div>
+        
+        <select
+          value={selectValue}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val === '__manual__') {
+              setLocalConfig(prev => ({
+                ...prev,
+                fieldsMap: { ...prev.fieldsMap, [valueKey]: '' }
+              }));
+            } else {
+              setLocalConfig(prev => ({
+                ...prev,
+                fieldsMap: { ...prev.fieldsMap, [valueKey]: val }
+              }));
+            }
+          }}
+          className="w-full p-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-[#8a2d46] text-slate-700 transition-all"
+        >
+          <option value="">-- Selecionar Campo --</option>
+          {sortedCustomFields.map(cf => (
+            <option key={cf.id} value={cf.name}>
+              {cf.name} (ID: {cf.id})
+            </option>
+          ))}
+          <option value="__manual__">✍️ Outro / Digitar Manualmente...</option>
+        </select>
+
+        {(selectValue === '__manual__' || (!matchedField && currentValue)) && (
+          <div className="space-y-1 mt-1">
+            <span className="text-[10px] text-slate-400 font-medium uppercase">Valor Mapeado (ID ou Nome)</span>
+            <input
+              type="text"
+              value={currentValue}
+              onChange={(e) => setLocalConfig(prev => ({
+                ...prev,
+                fieldsMap: { ...prev.fieldsMap, [valueKey]: e.target.value }
+              }))}
+              placeholder={placeholder}
+              className="w-full p-2 text-xs font-normal rounded-lg border border-slate-200 focus:ring-2 focus:ring-[#8a2d46] bg-white text-slate-800 transition-all placeholder:text-slate-350"
+            />
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -256,110 +415,202 @@ export default function Settings({
 
       {/* SECTION 3: TRACKER SETTINGS PER FLIGHT LEVEL */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs">
-        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
-          <Tag className="w-5 h-5 text-indigo-600" /> 3. Mapeador de Trackers por Nível de Voo
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-2">
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+            <Tag className="w-5 h-5 text-indigo-600" /> 3. Mapeador de Trackers por Nível de Voo
+          </h3>
+          <div className="flex items-center gap-2">
+            {localConfig.useDemoWorkspace ? (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                Modo de Demonstração (Trackers Fictícios)
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Conectado ao Redmine
+              </span>
+            )}
+            <button
+              onClick={loadTrackers}
+              disabled={loadingTrackers}
+              className="p-1 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-700 disabled:opacity-50 transition-colors"
+              title="Recarregar trackers do Redmine"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingTrackers ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
         
-        <p className="text-xs text-slate-400">Classifica os trackers do Redmine em níveis Flight Levels do modelo Klaus Leopold (valores separados por vírgula).</p>
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Associe cada Tipo de Tarefa (Tracker) do seu Redmine ao seu respectivo nível do Flight Levels do modelo Klaus Leopold. Isso ditará em quais quadros e visões cada tarefa será agrupada.
+        </p>
 
-        <div className="space-y-3 pt-1 text-xs font-semibold">
-          <div className="space-y-1">
-            <span className="text-purple-800 block text-[11px] uppercase tracking-wider font-bold">📡 N3 Estratégico (Iniciativas Globais)</span>
+        {loadingTrackers ? (
+          <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400">
+            <RefreshCw className="w-6 h-6 animate-spin text-[#8a2d46]" />
+            <span className="text-xs font-medium">Carregando trackers do Redmine...</span>
+          </div>
+        ) : trackers.length === 0 ? (
+          <div className="py-6 text-center text-xs text-slate-400">
+            Nenhum tracker localizado. Use o formulário abaixo para adicionar trackers manualmente.
+          </div>
+        ) : (
+          <div className="border border-slate-150 rounded-xl overflow-hidden bg-slate-50/50">
+            <div className="divide-y divide-slate-150">
+              {trackers.map((tracker) => {
+                // Determine current level mapping
+                let currentLevel: 'l3' | 'l2' | 'l1' | 'none' = 'none';
+                const configTrackers = localConfig?.trackers || {};
+                const l3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
+                const l2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
+                const l1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
+
+                if (l3.includes(tracker)) currentLevel = 'l3';
+                else if (l2.includes(tracker)) currentLevel = 'l2';
+                else if (l1.includes(tracker)) currentLevel = 'l1';
+
+                return (
+                  <div key={tracker} className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white hover:bg-slate-50/40 transition-colors">
+                    <div className="space-y-1">
+                      <span className="font-bold text-slate-800 text-xs sm:text-sm">{tracker}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          currentLevel === 'l3' ? 'bg-purple-600 animate-pulse' :
+                          currentLevel === 'l2' ? 'bg-blue-600' :
+                          currentLevel === 'l1' ? 'bg-emerald-600' : 'bg-slate-300'
+                        }`} />
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase">
+                          {currentLevel === 'l3' ? 'N3 Estratégico' :
+                           currentLevel === 'l2' ? 'N2 Tático' :
+                           currentLevel === 'l1' ? 'N1 Operacional' : 'Ignorado'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1">
+                      {/* L3 Pill Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetTrackerLevel(tracker, 'l3')}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
+                          currentLevel === 'l3'
+                            ? 'bg-purple-100 text-purple-800 border-purple-300 shadow-xs font-semibold'
+                            : 'bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 border-slate-200 font-medium'
+                        }`}
+                      >
+                        N3 Estratégico
+                      </button>
+
+                      {/* L2 Pill Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetTrackerLevel(tracker, 'l2')}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
+                          currentLevel === 'l2'
+                            ? 'bg-blue-100 text-blue-800 border-blue-300 shadow-xs font-semibold'
+                            : 'bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 border-slate-200 font-medium'
+                        }`}
+                      >
+                        N2 Tático
+                      </button>
+
+                      {/* L1 Pill Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetTrackerLevel(tracker, 'l1')}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
+                          currentLevel === 'l1'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300 shadow-xs font-semibold'
+                            : 'bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 border-slate-200 font-medium'
+                        }`}
+                      >
+                        N1 Operacional
+                      </button>
+
+                      {/* Ignorar Pill Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetTrackerLevel(tracker, 'none')}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
+                          currentLevel === 'none'
+                            ? 'bg-slate-100 text-slate-800 border-slate-350 shadow-xs font-semibold'
+                            : 'bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-slate-200 font-medium'
+                        }`}
+                      >
+                        Ignorar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Add custom tracker manually */}
+        <div className="flex items-end gap-3 max-w-md pt-2 border-t border-slate-100">
+          <div className="flex-1 space-y-1.5 font-semibold text-xs">
+            <label className="text-slate-500 block">Adicionar Tracker Personalizado Manualmente</label>
             <input
               type="text"
-              defaultValue={localConfig.trackers.l3.join(', ')}
-              onBlur={(e) => updateTrackerList('l3', e.target.value)}
-              placeholder="Ex: Strategic Initiative, Portfolio Goal"
-              className="w-full p-2 text-sm font-normal rounded-md border focus:ring-2 focus:ring-purple-500"
+              value={customTrackerName}
+              onChange={(e) => setCustomTrackerName(e.target.value)}
+              placeholder="Ex: Epic, Sub-tarefa"
+              className="w-full p-2 text-xs font-normal border rounded-md focus:ring-2 focus:ring-[#8a2d46]"
             />
           </div>
-
-          <div className="space-y-1">
-            <span className="text-blue-800 block text-[11px] uppercase tracking-wider font-bold">✈️ N2 Tático (Coordenação de Projetos)</span>
-            <input
-              type="text"
-              defaultValue={localConfig.trackers.l2.join(', ')}
-              onBlur={(e) => updateTrackerList('l2', e.target.value)}
-              placeholder="Ex: Value Stream, Feature Epic"
-              className="w-full p-2 text-sm font-normal rounded-md border focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-emerald-800 block text-[11px] uppercase tracking-wider font-bold">💻 N1 Operacional (Ações Squad)</span>
-            <input
-              type="text"
-              defaultValue={localConfig.trackers.l1.join(', ')}
-              onBlur={(e) => updateTrackerList('l1', e.target.value)}
-              placeholder="Ex: Task, Bug, Support Request"
-              className="w-full p-2 text-sm font-normal rounded-md border focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
+          <button
+            onClick={handleAddCustomTracker}
+            type="button"
+            className="p-2 bg-[#8a2d46] hover:bg-[#80253e] text-white rounded-md text-xs font-bold border border-[#8a2d46] transition-all flex items-center justify-center w-9 h-9"
+            title="Adicionar tracker personalizado"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
       {/* SECTION 4: CUSTOM FIELDS MAP */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs">
-        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
-          <Sliders className="w-5 h-5 text-indigo-600" /> 4. Mapeador de Campos Personalizados
+        <h3 className="text-base font-bold text-slate-800 flex items-center justify-between border-b pb-2">
+          <span className="flex items-center gap-2">
+            <Sliders className="w-5 h-5 text-indigo-600" /> 4. Mapeador de Campos Personalizados
+          </span>
+          <button
+            type="button"
+            onClick={() => loadCustomFields()}
+            disabled={loadingCustomFields}
+            className="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 disabled:opacity-50 transition-colors"
+            title="Recarregar campos do Redmine"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingCustomFields ? 'animate-spin' : ''}`} />
+          </button>
         </h3>
+        
+        <p className="text-xs text-slate-400 leading-relaxed mb-2">
+          Selecione os campos personalizados (Custom Fields) carregados do seu Redmine ou escolha "Outro" para digitar o nome/ID manualmente.
+        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
-          <div className="space-y-1.5">
-            <label className="text-slate-500 block">Marcador de Bloqueio (Custom Block Flag)</label>
-            <input
-              type="text"
-              value={localConfig.fieldsMap.blockedFlag}
-              onChange={(e) => setLocalConfig(prev => ({
-                ...prev,
-                fieldsMap: { ...prev.fieldsMap, blockedFlag: e.target.value }
-              }))}
-              placeholder="Ex: Impedimento, blocked_flag"
-              className="w-full p-2 text-sm font-normal rounded-md border focus:ring-2 focus:ring-[#8a2d46]"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-slate-500 block">Razão de Bloqueios (Block Reason Field)</label>
-            <input
-              type="text"
-              value={localConfig.fieldsMap.blockedReason}
-              onChange={(e) => setLocalConfig(prev => ({
-                ...prev,
-                fieldsMap: { ...prev.fieldsMap, blockedReason: e.target.value }
-              }))}
-              placeholder="Ex: blocked_reason, Causa de impedimento"
-              className="w-full p-2 text-sm font-normal rounded-md border focus:ring-2 focus:ring-[#8a2d46]"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-slate-500 block">Dono / Time Operacional (Squad Field ID)</label>
-            <input
-              type="text"
-              value={localConfig.fieldsMap.team}
-              onChange={(e) => setLocalConfig(prev => ({
-                ...prev,
-                fieldsMap: { ...prev.fieldsMap, team: e.target.value }
-              }))}
-              placeholder="Ex: squad_responsável, squad_id"
-              className="w-full p-2 text-sm font-normal rounded-md border focus:ring-2 focus:ring-[#8a2d46]"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-slate-500 block">Mapeador de Área L2 (Agrupador de Kanban)</label>
-            <input
-              type="text"
-              value={localConfig.fieldsMap.groupingField}
-              onChange={(e) => setLocalConfig(prev => ({
-                ...prev,
-                fieldsMap: { ...prev.fieldsMap, groupingField: e.target.value }
-              }))}
-              placeholder="Ex: area_coordenacao, cluster_valor"
-              className="w-full p-2 text-sm font-normal rounded-md border focus:ring-2 focus:ring-[#8a2d46]"
-            />
-          </div>
+          {renderFieldMapper(
+            'Marcador de Bloqueio (Custom Block Flag)',
+            'blockedFlag',
+            'Ex: Impedimento, blocked_flag, 12'
+          )}
+          {renderFieldMapper(
+            'Razão de Bloqueios (Block Reason Field)',
+            'blockedReason',
+            'Ex: blocked_reason, Causa de impedimento, 13'
+          )}
+          {renderFieldMapper(
+            'Dono / Time Operacional (Squad Field ID)',
+            'team',
+            'Ex: squad_responsável, squad_id, 14'
+          )}
+          {renderFieldMapper(
+            'Mapeador de Área L2 (Agrupador de Kanban)',
+            'groupingField',
+            'Ex: area_coordenacao, cluster_valor, 15'
+          )}
         </div>
       </div>
 

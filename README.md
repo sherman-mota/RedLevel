@@ -1,85 +1,88 @@
-# RedLevels - Flight Levels Management System
+# 🔴 RedLevels — Flight Levels Management System
 
-**RedLevels** é um sistema corporativo de gestão visual e métricas de alta performance baseado na metodologia de **Flight Levels** integrada em tempo real com o **Redmine**. 
+**RedLevels** é um sistema corporativo de gestão visual e métricas de alta performance, baseado na metodologia de **Flight Levels** e integrado em tempo real com o **Redmine** via API segura. 
 
-O principal objetivo do RedLevels é fornecer visibilidade ponta a ponta sobre o fluxo de entrega de valor de uma corporação, traduzindo grandes objetivos estratégicos (L3) em rotas de coordenação tática (L2) e tarefas diárias de execução operacional (L1).
+O principal objetivo do RedLevels é fornecer visibilidade de ponta a ponta sobre o fluxo de entrega de valor de uma corporação, traduzindo grandes objetivos estratégicos (L3) em rotas de coordenação tática (L2) e tarefas diárias de execução operacional (L1).
 
 ---
 
 ## 🎨 Design System & Identidade Visual
-O RedLevels adota a **Enterprise Corporate Red Palette**, estruturada de forma clara, moderna e com foco em alta legibilidade:
-- **Tema Light & Claro:** Fundos leves em tons suaves de off-white e cinza, que preservam o conforto visual durante longas horas de análise corporativa.
-- **Destaques de Marca:** Acentos finos e focados baseados em vermelho corporativo (`#8a2d46`) e tonalidades de rosa suave.
-- **Tipografia:** Tipografia sofisticada de alta legibilidade corporativa utilizando a família de fontes **Inter** com elementos lógicos em mono-espaçado para IDs de tarefas e strings de integração do Redmine.
-- No-Larping visual: Interface focada em dados práticos, eliminando ruídos técnicos, consoles simulados ou dados de rede irrelevantes.
+
+O RedLevels adota o **Enterprise Corporate Red Palette**, estruturado de forma elegante com foco em alta legibilidade de dados analíticos:
+*   **Tema Light & Claro:** Fundos limpos off-white e cinzas suaves que preservam o conforto visual durante longas horas de análise corporativa.
+*   **Destaques de Marca:** Acentos finos e elegantes baseados em vermelho corporativo (`#8a2d46`) e tonalidades de rosa suave.
+*   **Tipografia:** Família de fontes **Inter** de alta legibilidade corporativa, com elementos lógicos em fontes mono-espaçadas para IDs de tarefas e chaves de integração do Redmine.
+*   **Aesthetics Premium:** Interface focada em dados práticos, eliminando ruídos técnicos e dashboards poluídos para focar em métricas reais de agilidade.
 
 ---
 
 ## 🚀 Principais Módulos do Sistema
 
 ### 1. Visão Geral (Overview Hub)
-Apresenta de forma vertical os blocos interativos dos três níveis de voo (**L3**, **L2**, **L1**). Cada seção do Hub exibe indicadores quantitativos instantâneos de itens ativos e impedimentos bloqueantes das equipes de entrega.
+Apresenta de forma dinâmica os blocos interativos dos três níveis de voo (**L3**, **L2**, **L1**). Cada seção do Hub exibe indicadores quantitativos instantâneos de itens ativos e impedimentos bloqueantes das equipes de entrega.
 
 ### 2. Quadro Kanban (Flight Boards)
 Quadros customizados para cada nível de voo:
-- **Flight Level 3 (Estratégico):** Monitoramento de metas anuais e de longo prazo.
-- **Flight Level 2 (Coordenação):** Suporte avançado a raias horizontais (*Swimlanes*) parametrizáveis pelo campo customizado pré-definido, isolando dependências entre múltiplas equipes.
-- **Flight Level 1 (Operacional):** Quadro altamente focado na operação diária com compactação automática e display consolidado de carga via mapa de densidade (*Dot Matrix*).
+*   **Flight Level 3 (Estratégico):** Monitoramento de metas anuais e objetivos estratégicos de longo prazo.
+*   **Flight Level 2 (Coordenação):** Suporte avançado a raias horizontais (*Swimlanes*) parametrizáveis, isolando dependências entre múltiplas equipes ou áreas de negócio.
+*   **Flight Level 1 (Operacional):** Quadro de tarefas granular e compactado com display de carga via mapa de densidade (*Dot Matrix*).
 
 ### 3. Mapa de Dependências Globais
-Um visualizador de conexões que rastreia dependências e impedimentos inter-squad (*blocked-by* e relações *parent-child*), permitindo que gerentes identifiquem gargalos em rota crítica do portfólio.
+Um visualizador de conexões interativas que rastreia dependências e impedimentos inter-squad (relações do tipo `blocked-by` e parentesco `parent-child`), permitindo a rápida identificação de gargalos críticos.
 
 ### 4. Painel de Métricas Avançadas
-Gráficos e indicadores automatizados com as principais métricas de agilidade e fluxo:
-- **Lead Time Histórico** (Distribuição de duração de entrega).
-- **Throughput semanal/mensal** (Vazão de itens finalizados).
-- **WIP Age Ativo** (Sinalização preditiva de gargalos e cartões inativos bloqueados na fila).
-- **CFD (Cumulative Flow Diagram)** (Acompanhamento e saúde do fluxo operativo).
+Gráficos analíticos automatizados alimentados em tempo real pelas métricas de agilidade e fluxo:
+*   **Distribuição de Lead Time:** Tempo histórico de entrega de ponta a ponta.
+*   **Throughput Semanal/Mensal:** Volume de vazão de itens concluídos.
+*   **WIP Age Ativo:** Sinalização preditiva de cartões inativos bloqueados na fila operativa.
+*   **Cumulative Flow Diagram (CFD):** Saúde estrutural e estabilidade do fluxo de trabalho.
 
-### 5. Painel de Configurações das Sincronias Redmine
-Módulo inteligente para mapeamento flexível de segurança, parametrização de servidores, associação flexível de trackers para cada Flight Level, e conversores de ciclos de status do Redmine para os estágios padrões de agilidade.
+### 5. Configurações de Sincronia Redmine
+Módulo para mapeamento flexível de servidores, segurança, associação dinâmica de trackers para cada nível de voo e mapeamento inteligente de ciclos de status para colunas Kanban corporativas.
 
 ---
 
-## 📂 Estrutura de Documentos do Sistema
-A documentação completa de especificações e casos de uso do sistema foi consolidada sob a pasta `/docs`:
-- 📄 [**docs/PRD.md**](./docs/PRD.md) - Documento de Requisitos do Produto, detalhando objetivos, regras de negócio e a arquitetura de sincronização integrada com o Redmine.
-- 📄 [**docs/USER_STORIES.md**](./docs/USER_STORIES.md) - Compilado de Histórias de Usuário ágeis segmentadas por persona e com critérios de aceitação refinados.
+## 📂 Guia de Documentos do Sistema
+
+Toda a documentação técnica, especificação de arquitetura e casos de uso do RedLevels está disponível no diretório `/docs`:
+
+*   🏛️ [**docs/ARCHITECTURE.md**](./docs/ARCHITECTURE.md) - **Especificação de Arquitetura Técnica:** Detalhes de modelagem de dados, engenharia do proxy reverso de CORS, otimizações de paginação e design tokens.
+*   🛠️ [**docs/DEVELOPER_GUIDE.md**](./docs/DEVELOPER_GUIDE.md) - **Guia de Desenvolvimento e Operações:** Manual prático para instalação local, depuração de campos personalizados e troubleshooting.
+*   📄 [**docs/PRD.md**](./docs/PRD.md) - **Documento de Requisitos do Produto (PRD):** Visão de negócios, taxonomia de Flight Levels e escopo do sistema.
+*   📄 [**docs/USER_STORIES.md**](./docs/USER_STORIES.md) - **Histórias de Usuário:** Casos de uso ágeis estruturados por personas com critérios de aceitação refinados.
 
 ---
 
 ## 🛠️ Tecnologias Utilizadas
-A aplicação foi construída com um ecossistema robusto, responsivo e performático:
-- **Frontend Core:** [React 18](https://react.dev/) & [TypeScript](https://www.typescriptlang.org/)
-- **Vite:** Build Rápido e Dev-Server ágil.
-- **Tailwind CSS:** Construção de utilitários rápidos e ágeis baseados na paleta light corporativa.
-- **Motion:** Biblioteca otimizada para transições e micro-interações de navegação.
-- **Recharts / D3:** Dashboards de alta fidelidade para métricas de agilidade.
-- **Lucide React:** Ícones vetoriais modernos e legíveis.
+
+A aplicação foi construída com um ecossistema robusto, responsivo e de alta performance:
+*   **Frontend Core:** React 18, TypeScript e Vite.
+*   **Design & Estilos:** Tailwind CSS v4 para utilitários de design elegantes.
+*   **Animações:** Motion para micro-interações de navegação fluidas e transições premium.
+*   **Dashboards:** Recharts e D3 para renderização de gráficos em tempo real.
+*   **Ícones:** Lucide React.
+*   **Proxy Server:** Node.js com Express para bypass seguro de CORS.
 
 ---
 
-## 🚀 Como Executar o Projeto Localmente
+## ⚡ Setup Rápido (Local Run)
 
-### Pré-requisitos
-*   Node.js instalado (v18 ou superior recomendado)
-*   NPM (gerenciador de pacotes padrão)
-
-### Instalação de Dependências
-Para instalar todas as dependências do projeto contidas no `package.json`, execute:
+### Instalação
+Para instalar todas as dependências do projeto:
 ```bash
 npm install
 ```
 
-### Rodar Servidor de Desenvolvimento
-Inicie a aplicação localmente no endereço e porta padrões (`http://localhost:3000`):
+### Executar em Modo de Demonstração (Dados Simulados)
+Inicie o dev-server do Vite de forma autônoma:
 ```bash
 npm run dev
 ```
+Acesse em: `http://localhost:3000`.
 
-### Gerar Build Estático de Produção
-Para compilar e otimizar a aplicação para distribuição em produção:
+### Executar em Modo Integrado (Com Redmine Real)
+Inicie o servidor proxy integrado para resolver bloqueios de CORS:
 ```bash
-npm run build
+npm run serve
 ```
-O build final e compactado será gerado de forma estática dentro do subdiretório `dist/`.
+Acesse em: `http://localhost:4173` e configure suas chaves de API nas configurações do app.

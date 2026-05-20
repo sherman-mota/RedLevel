@@ -1,6 +1,28 @@
 import { RedmineConfig, Issue, FlightLevel, KanbanStage } from '../types';
 import { getMockIssues } from '../mockData';
 
+/**
+ * Constrói a URL para o proxy reverso.
+ * Codifica a URL do Redmine como primeiro segmento do path, para que o
+ * servidor proxy (Vite ou Express) possa extraí-la sem depender de headers
+ * customizados — o que resolve problemas de roteamento dinâmico no preview.
+ *
+ * Exemplo:
+ *   buildRedmineUrl('https://redmine.acme.com', '/users/current.json')
+ *   → '/redmine-proxy/https%3A%2F%2Fredmine.acme.com/users/current.json'
+ */
+function buildRedmineUrl(serverUrl: string, apiPath: string): string {
+  const encoded = encodeURIComponent(serverUrl.replace(/\/$/, ''));
+  return `/redmine-proxy/${encoded}${apiPath}`;
+}
+
+function buildRedmineHeaders(token: string): HeadersInit {
+  return {
+    'X-Redmine-API-Key': token,
+    'Content-Type': 'application/json',
+  };
+}
+
 const CONFIG_KEY = 'redlevels_redmine_config';
 
 export const DEFAULT_CONFIG: RedmineConfig = {
@@ -54,29 +76,43 @@ export function loadConfig(): RedmineConfig {
 export async function testConnection(serverUrl: string, token: string): Promise<boolean> {
   if (!serverUrl || !token) return false;
   
-  // Clean trailing slashes
   const cleanUrl = serverUrl.replace(/\/$/, '');
   
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  
   try {
-    const response = await fetch(`${cleanUrl}/users/current.json`, {
+    // Usa o proxy para evitar CORS — /redmine-proxy redireciona para o Redmine real
+    const url = buildRedmineUrl(cleanUrl, '/users/current.json');
+    const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'X-Redmine-API-Key': token,
-        'Content-Type': 'application/json'
-      },
-      mode: 'cors'
+      headers: buildRedmineHeaders(token),
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     if (response.ok) {
       return true;
     }
+    // Tenta entender o erro
+    if (response.status === 401) {
+      throw new Error('Token de API inválido ou sem permissão. Verifique a chave de API do Redmine.');
+    }
     return false;
-  } catch (error) {
-    console.error('Redmine connection failed (likely CORS or wrong URL):', error);
-    throw new Error(
-      'Não foi possível conectar ao servidor Redmine. ' +
-      'Verifique se a URL está correta e se o servidor suporta CORS para requisições desta origem.'
-    );
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    // Se o proxy não estiver disponível (rodando direto no Vite sem proxy), informa claramente
+    if (error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError') || error?.name === 'AbortError') {
+      throw new Error(
+        'Não foi possível conectar ao servidor Redmine.\n\n' +
+        'Para usar com um servidor Redmine externo, execute o app com:\n' +
+        '  npm run serve\n\n' +
+        'O servidor proxy embutido resolve o CORS automaticamente.'
+      );
+    }
+    console.error('Redmine connection failed:', error);
+    throw error;
   }
 }
 
@@ -88,25 +124,78 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
   const cleanUrl = config.serverUrl.replace(/\/$/, '');
   
   try {
-    // Redmine API request for issues
-    const response = await fetch(`${cleanUrl}/issues.json?limit=100&include=custom_fields`, {
-      method: 'GET',
-      headers: {
-        'X-Redmine-API-Key': config.token,
-        'Content-Type': 'application/json'
-      },
-      mode: 'cors'
-    });
+    // 1. Obter a lista completa de trackers cadastrados com seus IDs
+    const trackersList = await fetchRedmineTrackersList(config);
+    
+    const configTrackers = config.trackers || {};
+    const l3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
+    const l2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
+    const l1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
+    
+    const allMappedNames = [...l3, ...l2, ...l1];
+    
+    // Obter os IDs numéricos correspondentes aos trackers mapeados pelo usuário
+    const mappedTrackerIds = trackersList
+      .filter(t => allMappedNames.includes(t.name))
+      .map(t => t.id);
 
-    if (!response.ok) {
-      throw new Error(`Erro na resposta do Redmine: ${response.status}`);
+    // Se o usuário não mapeou nenhum tracker, retorna vazio imediatamente sem fazer requisição à toa
+    if (mappedTrackerIds.length === 0) {
+      return [];
     }
 
-    const data = await response.json();
-    const redmineIssues = data.issues || [];
+    // Formata os IDs como uma query string aceita nativamente pelo Redmine: tracker_id=1,2,3...
+    const trackerIdsQuery = mappedTrackerIds.join(',');
 
-    // Parse and map Redmine issues to FlightLevel schemas
-    return redmineIssues.map((issue: any): Issue => {
+    // Busca paginada para obter apenas as tarefas que pertencem a estes trackers
+    let allIssues: any[] = [];
+    let offset = 0;
+    const limit = 100;
+    let hasMore = true;
+
+    while (hasMore) {
+      // Passa a query parameter tracker_id para que o Redmine filtre os registros diretamente no banco de dados!
+      const url = buildRedmineUrl(
+        cleanUrl, 
+        `/issues.json?limit=${limit}&offset=${offset}&tracker_id=${trackerIdsQuery}&include=custom_fields`
+      );
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: buildRedmineHeaders(config.token),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro na resposta do Redmine: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const pageIssues = data.issues || [];
+      allIssues = [...allIssues, ...pageIssues];
+
+      // Se a página retornou menos itens que o limite, não há mais páginas.
+      if (pageIssues.length < limit) {
+        hasMore = false;
+      } else if (data.total_count !== undefined && data.total_count !== null && allIssues.length >= Number(data.total_count)) {
+        hasMore = false;
+      } else {
+        offset += limit;
+      }
+
+      // Trava de segurança para evitar loops infinitos
+      if (offset > 5000) {
+        hasMore = false;
+      }
+    }
+
+    // Mantemos o filtro em memória como camada dupla de segurança (double-guard)
+    const mappedIssues = allIssues.filter((issue: any) => {
+      const trackerName = issue.tracker?.name || '';
+      return l3.includes(trackerName) || l2.includes(trackerName) || l1.includes(trackerName);
+    });
+
+    // Mapear os cartões filtrados para o schema do FlightLevels do app
+    return mappedIssues.map((issue: any): Issue => {
       const trackerName = issue.tracker?.name || '';
       const statusName = issue.status?.name || '';
       
@@ -213,4 +302,164 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
 
 function getPastDateToday() {
   return new Date().toISOString().split('T')[0];
+}
+
+export async function fetchRedmineTrackers(config: RedmineConfig): Promise<string[]> {
+  if (config.useDemoWorkspace || !config.serverUrl || !config.token) {
+    return [
+      'Strategic Initiative',
+      'Portfolio Goal',
+      'Value Stream',
+      'Feature Epic',
+      'Coordination Issue',
+      'Task',
+      'Bug',
+      'Support Request',
+      'Sub-task'
+    ];
+  }
+
+  const cleanUrl = config.serverUrl.replace(/\/$/, '');
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  
+  try {
+    const url = buildRedmineUrl(cleanUrl, '/trackers.json');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildRedmineHeaders(config.token),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Erro buscando trackers: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return (data.trackers || []).map((t: any) => t.name);
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('Erro buscando trackers do Redmine, usando fallback:', error);
+    return [
+      'Strategic Initiative',
+      'Portfolio Goal',
+      'Value Stream',
+      'Feature Epic',
+      'Coordination Issue',
+      'Task',
+      'Bug',
+      'Support Request',
+      'Sub-task'
+    ];
+  }
+}
+
+export async function fetchRedmineTrackersList(config: RedmineConfig): Promise<{ id: number; name: string }[]> {
+  if (config.useDemoWorkspace || !config.serverUrl || !config.token) {
+    return [
+      { id: 1, name: 'Strategic Initiative' },
+      { id: 2, name: 'Portfolio Goal' },
+      { id: 3, name: 'Value Stream' },
+      { id: 4, name: 'Feature Epic' },
+      { id: 5, name: 'Coordination Issue' },
+      { id: 6, name: 'Task' },
+      { id: 7, name: 'Bug' },
+      { id: 8, name: 'Support Request' },
+      { id: 9, name: 'Sub-task' }
+    ];
+  }
+
+  const cleanUrl = config.serverUrl.replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  
+  try {
+    const url = buildRedmineUrl(cleanUrl, '/trackers.json');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildRedmineHeaders(config.token),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Erro buscando trackers: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return (data.trackers || []).map((t: any) => ({
+      id: Number(t.id),
+      name: String(t.name)
+    }));
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('Erro buscando lista detalhada de trackers do Redmine, usando fallback:', error);
+    return [
+      { id: 1, name: 'Strategic Initiative' },
+      { id: 2, name: 'Portfolio Goal' },
+      { id: 3, name: 'Value Stream' },
+      { id: 4, name: 'Feature Epic' },
+      { id: 5, name: 'Coordination Issue' },
+      { id: 6, name: 'Task' },
+      { id: 7, name: 'Bug' },
+      { id: 8, name: 'Support Request' },
+      { id: 9, name: 'Sub-task' }
+    ];
+  }
+}
+
+export async function fetchRedmineCustomFields(config: RedmineConfig): Promise<{ id: string; name: string }[]> {
+  if (config.useDemoWorkspace || !config.serverUrl || !config.token) {
+    return [
+      { id: '1', name: 'Impedimento (Blocked Flag)' },
+      { id: '2', name: 'Motivo do Impedimento' },
+      { id: '3', name: 'Squad Responsável' },
+      { id: '4', name: 'Área de Coordenação' },
+      { id: '5', name: 'Flight Level' },
+      { id: '6', name: 'Business Value' },
+      { id: '7', name: 'Fila de Origem' }
+    ];
+  }
+
+  const cleanUrl = config.serverUrl.replace(/\/$/, '');
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  
+  try {
+    const url = buildRedmineUrl(cleanUrl, '/custom_fields.json');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildRedmineHeaders(config.token),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Erro buscando custom fields: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return (data.custom_fields || []).map((cf: any) => ({
+      id: String(cf.id),
+      name: cf.name
+    }));
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('Erro buscando campos personalizados do Redmine, usando fallback:', error);
+    return [
+      { id: '1', name: 'Impedimento (Blocked Flag)' },
+      { id: '2', name: 'Motivo do Impedimento' },
+      { id: '3', name: 'Squad Responsável' },
+      { id: '4', name: 'Área de Coordenação' },
+      { id: '5', name: 'Flight Level' },
+      { id: '6', name: 'Business Value' },
+      { id: '7', name: 'Fila de Origem' }
+    ];
+  }
 }
