@@ -15,7 +15,7 @@ import {
   Plus
 } from 'lucide-react';
 import { RedmineConfig, KanbanStage } from '../types';
-import { testConnection, fetchRedmineTrackers, fetchRedmineCustomFields, DEFAULT_CONFIG } from '../api/redmine';
+import { testConnection, fetchRedmineTrackers, fetchRedmineCustomFields, fetchRedmineStatuses, DEFAULT_CONFIG } from '../api/redmine';
 
 interface SettingsProps {
   config: RedmineConfig;
@@ -30,7 +30,7 @@ export default function Settings({
 }: SettingsProps) {
   // Local state copy
   const [localConfig, setLocalConfig] = useState<RedmineConfig>(() => {
-    const configTrackers = config?.trackers || {};
+    const configTrackers = (config?.trackers || {}) as Partial<RedmineConfig['trackers']>;
     const mergedTrackers = {
       l3: Array.isArray(configTrackers.l3) ? configTrackers.l3 : (DEFAULT_CONFIG?.trackers?.l3 || []),
       l2: Array.isArray(configTrackers.l2) ? configTrackers.l2 : (DEFAULT_CONFIG?.trackers?.l2 || []),
@@ -102,6 +102,103 @@ export default function Settings({
       console.error('Erro ao carregar campos personalizados:', err);
     } finally {
       setLoadingCustomFields(false);
+    }
+  };
+
+  // Auto-mapping states
+  const [detectingStatuses, setDetectingStatuses] = useState(false);
+  const [autoMapFeedback, setAutoMapFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleAutoMapStatuses = async () => {
+    setDetectingStatuses(true);
+    setAutoMapFeedback(null);
+
+    try {
+      const serverStatuses = await fetchRedmineStatuses(localConfig);
+      
+      let addedCount = 0;
+      const updatedStagesMap = { ...localConfig.stagesMap };
+
+      serverStatuses.forEach((status) => {
+        const name = status.name.trim();
+        // Preserva se o status já estiver mapeado (case-insensitive ou correspondência exata)
+        const alreadyMapped = Object.keys(updatedStagesMap).some(
+          (k) => k.toLowerCase() === name.toLowerCase()
+        );
+
+        if (!alreadyMapped) {
+          let assignedStage: KanbanStage = 'To Do'; // fallback padrão
+
+          const lowerName = name.toLowerCase();
+
+          if (status.is_closed) {
+            assignedStage = 'Done';
+          } else if (status.is_default) {
+            assignedStage = 'Backlog';
+          } else if (
+            lowerName.includes('resolv') || 
+            lowerName.includes('fech') || 
+            lowerName.includes('done') || 
+            lowerName.includes('conclu') || 
+            lowerName.includes('rejeit') || 
+            lowerName.includes('entreg')
+          ) {
+            assignedStage = 'Done';
+          } else if (
+            lowerName.includes('desen') || 
+            lowerName.includes('prog') || 
+            lowerName.includes('andam') || 
+            lowerName.includes('doing') || 
+            lowerName.includes('test') || 
+            lowerName.includes('homolog') || 
+            lowerName.includes('valida') || 
+            lowerName.includes('review') || 
+            lowerName.includes('revis') || 
+            lowerName.includes('imped') || 
+            lowerName.includes('bloq')
+          ) {
+            assignedStage = 'In Progress';
+          } else if (
+            lowerName.includes('todo') || 
+            lowerName.includes('aprov') || 
+            lowerName.includes('prior') || 
+            lowerName.includes('discuss') || 
+            lowerName.includes('analis') || 
+            lowerName.includes('planej')
+          ) {
+            assignedStage = 'To Do';
+          } else {
+            assignedStage = 'Backlog';
+          }
+
+          updatedStagesMap[name] = assignedStage;
+          addedCount++;
+        }
+      });
+
+      if (addedCount > 0) {
+        setLocalConfig((prev) => ({
+          ...prev,
+          stagesMap: updatedStagesMap
+        }));
+        setAutoMapFeedback({
+          success: true,
+          message: `Sucesso! O assistente detectou e mapeou automaticamente ${addedCount} novos status do Redmine.`
+        });
+      } else {
+        setAutoMapFeedback({
+          success: true,
+          message: 'Todos os status detectados no seu Redmine já possuem mapeamentos ativos!'
+        });
+      }
+    } catch (err: any) {
+      console.error('Erro na detecção automática de status:', err);
+      setAutoMapFeedback({
+        success: false,
+        message: err.message || 'Falha ao conectar com o Redmine para listar status (Verifique CORS ou credenciais).'
+      });
+    } finally {
+      setDetectingStatuses(false);
     }
   };
 
@@ -621,6 +718,39 @@ export default function Settings({
         </h3>
 
         <div className="space-y-3 text-xs leading-relaxed">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 border border-slate-150 p-4 rounded-xl">
+            <div className="space-y-1">
+              <p className="text-slate-700 font-bold text-xs sm:text-sm">Configuração Automática Inteligente</p>
+              <p className="text-slate-400 text-[11px] leading-snug">
+                Detecte e vincule instantaneamente todos os status do seu Redmine utilizando o motor preditivo.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAutoMapStatuses}
+              disabled={detectingStatuses}
+              className="py-2 px-4 rounded-lg bg-[#8a2d46] hover:bg-[#80253e] disabled:opacity-50 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 whitespace-nowrap self-start sm:self-center"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${detectingStatuses ? 'animate-spin' : ''}`} />
+              <span>{detectingStatuses ? 'Detectando...' : 'Detectar e Mapear Automaticamente'}</span>
+            </button>
+          </div>
+
+          {autoMapFeedback && (
+            <div className={`p-3 rounded-lg border text-[11px] leading-relaxed flex items-start gap-2 ${
+              autoMapFeedback.success 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-850' 
+                : 'bg-red-50 border-red-200 text-red-950'
+            }`}>
+              {autoMapFeedback.success ? (
+                <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+              ) : (
+                <XCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+              )}
+              <p className="font-semibold">{autoMapFeedback.message}</p>
+            </div>
+          )}
+
           <p className="text-slate-400">Associe o nome exato dos status cadastrados no seu servidor Redmine correspondente a um dos estágios consolidados de agilidade:</p>
           
           <div className="border rounded-lg overflow-hidden max-w-lg bg-zinc-50">
@@ -637,17 +767,34 @@ export default function Settings({
                   <tr key={redmineSt} className="hover:bg-slate-100/50">
                     <td className="p-2.5 font-mono text-[11px] font-bold">{redmineSt}</td>
                     <td className="p-2.5">
-                      <span className={`px-2 py-0.5 rounded font-semibold text-[10px] ${
-                        kanbanSg === 'Done' ? 'bg-emerald-100 text-emerald-800' :
-                        kanbanSg === 'In Progress' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100'
-                      }`}>
-                        {kanbanSg}
-                      </span>
+                      <select
+                        value={kanbanSg}
+                        onChange={(e) => {
+                          const val = e.target.value as KanbanStage;
+                          setLocalConfig(prev => ({
+                            ...prev,
+                            stagesMap: {
+                              ...prev.stagesMap,
+                              [redmineSt]: val
+                            }
+                          }));
+                        }}
+                        className={`p-1.5 text-[11px] font-bold rounded-lg border bg-white focus:ring-2 focus:ring-[#8a2d46] transition-all cursor-pointer ${
+                          kanbanSg === 'Done' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' :
+                          kanbanSg === 'In Progress' ? 'bg-blue-50 border-blue-200 text-blue-800' :
+                          kanbanSg === 'To Do' ? 'bg-indigo-50 border-indigo-200 text-indigo-800' :
+                          'bg-slate-50 border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {STAGE_OPTIONS.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="p-2.5 text-right">
                       <button 
                         onClick={() => handleRemoveStatusMapping(redmineSt)}
-                        className="text-red-500 hover:text-red-700 hover:underline"
+                        className="text-red-500 hover:text-red-700 hover:underline font-semibold"
                       >
                         Desfazer
                       </button>

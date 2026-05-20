@@ -127,7 +127,7 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
     // 1. Obter a lista completa de trackers cadastrados com seus IDs
     const trackersList = await fetchRedmineTrackersList(config);
     
-    const configTrackers = config.trackers || {};
+    const configTrackers = (config.trackers || {}) as Partial<RedmineConfig['trackers']>;
     const l3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
     const l2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
     const l1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
@@ -463,3 +463,52 @@ export async function fetchRedmineCustomFields(config: RedmineConfig): Promise<{
     ];
   }
 }
+
+export async function fetchRedmineStatuses(config: RedmineConfig): Promise<{ id: string; name: string; is_default?: boolean; is_closed?: boolean }[]> {
+  if (config.useDemoWorkspace || !config.serverUrl || !config.token) {
+    return [
+      { id: '1', name: 'Nova', is_default: true, is_closed: false },
+      { id: '2', name: 'Em Discussão', is_default: false, is_closed: false },
+      { id: '3', name: 'Aprovada', is_default: false, is_closed: false },
+      { id: '4', name: 'Em Desenvolvimento', is_default: false, is_closed: false },
+      { id: '5', name: 'Bloqueada', is_default: false, is_closed: false },
+      { id: '6', name: 'Em Teste', is_default: false, is_closed: false },
+      { id: '7', name: 'Aguardando Homologação', is_default: false, is_closed: false },
+      { id: '8', name: 'Resolvida', is_default: false, is_closed: true },
+      { id: '9', name: 'Fechada', is_default: false, is_closed: true },
+      { id: '10', name: 'Rejeitada', is_default: false, is_closed: true }
+    ];
+  }
+
+  const cleanUrl = config.serverUrl.replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  
+  try {
+    const url = buildRedmineUrl(cleanUrl, '/issue_statuses.json');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildRedmineHeaders(config.token),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Erro buscando status do Redmine: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return (data.issue_statuses || []).map((status: any) => ({
+      id: String(status.id),
+      name: status.name,
+      is_default: !!status.is_default,
+      is_closed: !!status.is_closed
+    }));
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    console.error('Erro buscando status do Redmine:', error);
+    throw error;
+  }
+}
+
