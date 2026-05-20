@@ -146,10 +146,10 @@ export default function Sidebar({
           {!collapsed && (
             <div className="truncate">
               <p className="font-semibold leading-3">
-                {config.isConnected ? 'Modo Redmine' : 'Modo Simulador'}
+                {config.isConnected ? 'Redmine Integrado' : 'Conexão Offline (Cache)'}
               </p>
               <p className="text-[9px] opacity-70 truncate mt-0.5">
-                {config.isConnected ? config.serverUrl.replace(/^https?:\/\//, '') : 'Demo Workspace Ativo'}
+                {config.isConnected ? config.serverUrl.replace(/^https?:\/\//, '') : 'Workspace Demonstrativo'}
               </p>
             </div>
           )}

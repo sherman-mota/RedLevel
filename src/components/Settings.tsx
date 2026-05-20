@@ -132,80 +132,61 @@ export default function Settings({
           <Server className="w-5 h-5 text-indigo-600" /> 1. Conexão com Servidor Redmine
         </h3>
 
-        {/* Use Demo Workspace toggle switch */}
-        <div className="p-3 bg-indigo-50 border rounded-lg flex items-center justify-between">
-          <div className="space-y-0.5 text-xs">
-            <span className="font-bold text-indigo-950 block">Ativar Modo Simulador (Demo Workspace)</span>
-            <span className="text-slate-500 text-[11px] block">Ignora o Redmine externo e ativa um ecossistema offline populado com cards e dependências.</span>
+        <div className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
+            <div className="space-y-1.5Packed">
+              <label className="text-slate-500 block mb-1">URL Oficial do Servidor Redmine</label>
+              <input
+                type="text"
+                value={localConfig.serverUrl}
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, serverUrl: e.target.value }))}
+                placeholder="Ex: https://meu-redmine.empresa.com"
+                className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-slate-500 block mb-1">API Access Token (Chave de Acesso)</label>
+              <input
+                type="password"
+                value={localConfig.token}
+                onChange={(e) => setLocalConfig(prev => ({ ...prev, token: e.target.value }))}
+                placeholder="Inserir hash de chave rest..."
+                className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
+              />
+            </div>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={localConfig.useDemoWorkspace}
-              onChange={(e) => setLocalConfig(prev => ({ ...prev, useDemoWorkspace: e.target.checked }))}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600" />
-          </label>
-        </div>
 
-        {!localConfig.useDemoWorkspace && (
-          <div className="space-y-4 pt-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
-              <div className="space-y-1.5Packed">
-                <label className="text-slate-500 block mb-1">URL Oficial do Servidor Redmine</label>
-                <input
-                  type="text"
-                  value={localConfig.serverUrl}
-                  onChange={(e) => setLocalConfig(prev => ({ ...prev, serverUrl: e.target.value }))}
-                  placeholder="Ex: https://meu-redmine.empresa.com"
-                  className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
-                />
+          {/* Test Connection Buttons */}
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testing}
+              className="py-1.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-md border flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
+              <span>Testar Conexão</span>
+            </button>
+          </div>
+
+          {/* Connection Status Tester Response feedback block */}
+          {testResult && (
+            <div className={`p-4.5 rounded-lg border text-xs leading-loose ${testResult.success ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-red-50 border-red-300 text-red-900'}`}>
+              <div className="flex items-center gap-2">
+                {testResult.success ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600">✕</div>}
+                <span className="font-bold">{testResult.success ? 'Conexão Estabelecida!' : 'Falha na Validação'}</span>
               </div>
-
-              <div className="space-y-1.5">
-                <label className="text-slate-500 block mb-1">API Access Token (Chave de Acesso)</label>
-                <input
-                  type="password"
-                  value={localConfig.token}
-                  onChange={(e) => setLocalConfig(prev => ({ ...prev, token: e.target.value }))}
-                  placeholder="Inserir hash de chave rest..."
-                  className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
-                />
-              </div>
-            </div>
-
-            {/* Test Connection Buttons */}
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleTestConnection}
-                disabled={testing}
-                className="py-1.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-md border flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
-                <span>Testar Conexão</span>
-              </button>
-            </div>
-
-            {/* Connection Status Tester Response feedback block */}
-            {testResult && (
-              <div className={`p-4.5 rounded-lg border text-xs leading-loose ${testResult.success ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-red-50 border-red-300 text-red-900'}`}>
-                <div className="flex items-center gap-2">
-                  {testResult.success ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <XCircle className="w-5 h-5 text-red-600" />}
-                  <span className="font-bold">{testResult.success ? 'Conexão Estabelecida!' : 'Falha na Validação'}</span>
+              <p className="mt-1.5 text-[11px] opacity-90">{testResult.message}</p>
+              {!testResult.success && (
+                <div className="pt-2 text-[10px] text-slate-500">
+                  💡 <b>Como resolver erro CORS do Redmine:</b> Adicione as seguintes configurações de cabeçalho no arquivo <code>additional_environment.rb</code> de seu Redmine: <br/>
+                  <code>config.middleware.insert_before 0, Rack::Cors do |allows| allows.allow do origins '*'; resource '*', headers: :any, methods: [:get, :post, :options] end end</code>
                 </div>
-                <p className="mt-1.5 text-[11px] opacity-90">{testResult.message}</p>
-                {!testResult.success && (
-                  <div className="pt-2 text-[10px] text-slate-500">
-                    💡 <b>Como resolver erro CORS do Redmine:</b> Adicione as seguintes configurações de cabeçalho no arquivo <code>additional_environment.rb</code> de seu Redmine: <br/>
-                    <code>config.middleware.insert_before 0, Rack::Cors do |allows| allows.allow do origins '*'; resource '*', headers: :any, methods: [:get, :post, :options] end end</code>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* SECTION 2: BRAND THEME OPTIONS */}

@@ -283,10 +283,10 @@ export default function App() {
               )}
             </button>
 
-            {/* Simulated Live status badge */}
-            <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-slate-200/90 dark:border-zinc-800">
+            {/* Live status badge */}
+            <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-slate-200/90">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold text-slate-500">{config.isConnected ? 'Redmine Conectado' : 'Simulador Local'}</span>
+              <span className="text-xs font-bold text-slate-500">{config.isConnected ? 'Redmine Conectado' : 'Conexão Offline (Cache)'}</span>
             </div>
           </div>
         </header>
