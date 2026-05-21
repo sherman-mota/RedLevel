@@ -43,6 +43,7 @@ export interface RedmineConfig {
   isConnected: boolean;
   useDemoWorkspace: boolean;
   activeTheme: 'classic' | 'modern' | 'contrast';
+  language: 'pt-BR' | 'en-US' | 'es-ES';
   trackers: {
     l3: string[];
     l2: string[];

@@ -1,19 +1,20 @@
 import React from 'react';
-import { 
-  BarChart3, 
-  Settings as SettingsIcon, 
-  Satellite, 
-  Plane, 
-  Monitor, 
-  GitMerge, 
-  Layers, 
-  Server, 
-  HelpCircle, 
-  ChevronLeft, 
+import {
+  BarChart3,
+  Settings as SettingsIcon,
+  Satellite,
+  Plane,
+  Monitor,
+  GitMerge,
+  Layers,
+  Server,
+  HelpCircle,
+  ChevronLeft,
   ChevronRight,
   Plus
 } from 'lucide-react';
 import { RedmineConfig } from '../types';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface SidebarProps {
   currentTab: string;
@@ -32,7 +33,7 @@ export default function Sidebar({
   setCollapsed,
   onNewInitiative
 }: SidebarProps) {
-  
+
   const getThemeClasses = () => {
     switch (config.activeTheme) {
       case 'classic':
@@ -65,18 +66,20 @@ export default function Sidebar({
     return 'hover:bg-slate-200/50 text-slate-700';
   };
 
+  const { t } = useLanguage();
+
   const navItems = [
-    { id: 'overview', name: 'Gestão Geral (Flex)', icon: Layers, meta: 'L3-L2-L1' },
-    { id: 'l3', name: 'Strategic L3', icon: Satellite, meta: 'Estratégico' },
-    { id: 'l2', name: 'Coordination L2', icon: Plane, meta: 'Tático' },
-    { id: 'l1', name: 'Operational L1', icon: Monitor, meta: 'Operacional' },
-    { id: 'dependencies', name: 'Mapa de Dep.', icon: GitMerge, meta: 'Grafos' },
-    { id: 'metrics', name: 'Métricas de Fluxo', icon: BarChart3, meta: 'KRs' },
-    { id: 'settings', name: 'Configurações', icon: SettingsIcon, meta: 'Redmine' },
+    { id: 'overview', name: t.navOverview, icon: Layers, meta: t.navMetaOverview },
+    { id: 'l3', name: t.navL3, icon: Satellite, meta: t.navMetaL3 },
+    { id: 'l2', name: t.navL2, icon: Plane, meta: t.navMetaL2 },
+    { id: 'l1', name: t.navL1, icon: Monitor, meta: t.navMetaL1 },
+    { id: 'dependencies', name: t.navDependencies, icon: GitMerge, meta: t.navMetaDep },
+    { id: 'metrics', name: t.navMetrics, icon: BarChart3, meta: t.navMetaMetrics },
+    { id: 'settings', name: t.navSettings, icon: SettingsIcon, meta: t.navMetaSettings },
   ];
 
   return (
-    <div 
+    <div
       className={`h-screen flex flex-col justify-between transition-all duration-350 relative ${collapsed ? 'w-20' : 'w-64'} ${getThemeClasses()}`}
     >
       {/* BRAND HEADER */}
@@ -90,7 +93,7 @@ export default function Sidebar({
               <h1 className="text-xl font-bold tracking-tight text-[#8a2d46]">RedLevels</h1>
             </div>
             <p className="text-xs mt-0.5 text-slate-500 font-mono">
-              Flight Levels Management
+              Escaled Agility View for Redmine
             </p>
           </div>
         ) : (
@@ -115,11 +118,10 @@ export default function Sidebar({
               {!collapsed && (
                 <div className="flex-1 flex items-center justify-between">
                   <span className="truncate font-sans">{item.name}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                    currentTab === item.id 
-                    ? 'bg-[#8a2d46]/20 text-[#8a2d46] font-bold' 
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${currentTab === item.id
+                    ? 'bg-[#8a2d46]/20 text-[#8a2d46] font-bold'
                     : 'bg-slate-200/50 text-slate-500 font-mono'
-                  }`}>
+                    }`}>
                     {item.meta}
                   </span>
                 </div>
@@ -137,19 +139,18 @@ export default function Sidebar({
       {/* COLLAPSE CONTROL & STATE STATUS */}
       <div className={`p-3 border-t ${config.activeTheme === 'classic' ? 'border-red-100' : config.activeTheme === 'contrast' ? 'border-[#8a2d46]' : 'border-slate-250'} space-y-3`}>
         {/* Connection Status Indicator */}
-        <div className={`text-xs rounded p-2 flex items-center gap-2 ${
-          config.isConnected 
-            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
-            : 'bg-amber-50 text-amber-800 border border-amber-250'
-        }`}>
+        <div className={`text-xs rounded p-2 flex items-center gap-2 ${config.isConnected
+          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+          : 'bg-amber-50 text-amber-800 border border-amber-250'
+          }`}>
           <Server className="w-4 h-4 flex-shrink-0" />
           {!collapsed && (
             <div className="truncate">
-              <p className="font-semibold leading-3">
-                {config.isConnected ? 'Redmine Integrado' : 'Conexão Offline (Cache)'}
+                        <p className="font-semibold leading-3">
+                {config.isConnected ? t.redmineConnected : t.connectionOffline}
               </p>
               <p className="text-[9px] opacity-70 truncate mt-0.5">
-                {config.isConnected ? config.serverUrl.replace(/^https?:\/\//, '') : 'Workspace Demonstrativo'}
+                {config.isConnected ? config.serverUrl.replace(/^https?:\/\//, '') : t.demoWorkspace}
               </p>
             </div>
           )}
@@ -165,7 +166,7 @@ export default function Sidebar({
           ) : (
             <>
               <ChevronLeft className="w-5 h-5 text-slate-500" />
-              <span className="text-xs font-medium">Recolher Menu</span>
+              <span className="text-xs font-medium">{t.collapseMenu}</span>
             </>
           )}
         </button>

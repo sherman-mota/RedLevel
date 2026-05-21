@@ -1,21 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Settings as SettingsIcon, 
-  Server, 
-  Layout, 
-  Tag, 
-  FolderLock, 
-  Sliders, 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Settings as SettingsIcon,
+  Server,
+  Tag,
+  FolderLock,
+  Sliders,
   HelpCircle,
   CheckCircle,
   XCircle,
-  Eye,
   RefreshCw,
   Palette,
-  Plus
+  Plus,
+  Globe,
+  ChevronRight,
+  Layers
 } from 'lucide-react';
 import { RedmineConfig, KanbanStage } from '../types';
 import { testConnection, fetchRedmineTrackers, fetchRedmineCustomFields, fetchRedmineStatuses, DEFAULT_CONFIG } from '../api/redmine';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface SettingsProps {
   config: RedmineConfig;
@@ -24,10 +26,16 @@ interface SettingsProps {
 
 const STAGE_OPTIONS: KanbanStage[] = ['Backlog', 'To Do', 'In Progress', 'Done'];
 
-export default function Settings({
-  config,
-  onSaveConfig
-}: SettingsProps) {
+const STAGE_COLORS: Record<KanbanStage, { bg: string; border: string; text: string; dot: string }> = {
+  'Backlog':     { bg: 'bg-slate-100',   border: 'border-slate-300',   text: 'text-slate-700',   dot: 'bg-slate-400' },
+  'To Do':       { bg: 'bg-indigo-100',  border: 'border-indigo-300',  text: 'text-indigo-800',  dot: 'bg-indigo-500' },
+  'In Progress': { bg: 'bg-blue-100',    border: 'border-blue-300',    text: 'text-blue-800',    dot: 'bg-blue-500' },
+  'Done':        { bg: 'bg-emerald-100', border: 'border-emerald-300', text: 'text-emerald-800', dot: 'bg-emerald-500' },
+};
+
+export default function Settings({ config, onSaveConfig }: SettingsProps) {
+  const { t } = useLanguage();
+
   // Local state copy
   const [localConfig, setLocalConfig] = useState<RedmineConfig>(() => {
     const configTrackers = (config?.trackers || {}) as Partial<RedmineConfig['trackers']>;
@@ -36,55 +44,58 @@ export default function Settings({
       l2: Array.isArray(configTrackers.l2) ? configTrackers.l2 : (DEFAULT_CONFIG?.trackers?.l2 || []),
       l1: Array.isArray(configTrackers.l1) ? configTrackers.l1 : (DEFAULT_CONFIG?.trackers?.l1 || []),
     };
-
     return {
       ...DEFAULT_CONFIG,
       ...config,
       trackers: mergedTrackers,
-      fieldsMap: {
-        ...DEFAULT_CONFIG.fieldsMap,
-        ...(config?.fieldsMap || {})
-      },
-      stagesMap: {
-        ...DEFAULT_CONFIG.stagesMap,
-        ...(config?.stagesMap || {})
-      }
+      fieldsMap: { ...DEFAULT_CONFIG.fieldsMap, ...(config?.fieldsMap || {}) },
+      stagesMap: { ...DEFAULT_CONFIG.stagesMap, ...(config?.stagesMap || {}) },
     };
   });
-  
-  // Connection tester states
+
+  // Section refs for scroll-navigation
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [activeSection, setActiveSection] = useState('connection');
+
+  // Connection tester
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // New status mapping creator states
+  // Kanban mapping form
   const [newRedmineStatus, setNewRedmineStatus] = useState('');
   const [newKanbanStage, setNewKanbanStage] = useState<KanbanStage>('To Do');
 
-  // Dynamic tracker states
+  // Trackers
   const [trackers, setTrackers] = useState<string[]>([]);
   const [loadingTrackers, setLoadingTrackers] = useState(false);
   const [customTrackerName, setCustomTrackerName] = useState('');
 
-  // Dynamic custom fields states
+  // Custom fields
   const [customFields, setCustomFields] = useState<{ id: string; name: string }[]>([]);
   const [loadingCustomFields, setLoadingCustomFields] = useState(false);
+
+  // Auto-map
+  const [detectingStatuses, setDetectingStatuses] = useState(false);
+  const [autoMapFeedback, setAutoMapFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Tracker filter
+  const [trackerFilter, setTrackerFilter] = useState('');
+
+  // Status filter
+  const [statusFilter, setStatusFilter] = useState('');
+
+  // Active kanban column filter (for stage view)
+  const [activeStageFilter, setActiveStageFilter] = useState<KanbanStage | 'all'>('all');
 
   const loadTrackers = async (cfgToUse = localConfig) => {
     setLoadingTrackers(true);
     try {
       const list = await fetchRedmineTrackers(cfgToUse);
-      // Mesclar os trackers do servidor com os mapeamentos já existentes de forma ultra-segura
       const configTrackers = cfgToUse?.trackers || {};
       const l3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
       const l2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
       const l1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
-
-      const combined = Array.from(new Set([
-        ...list,
-        ...l3,
-        ...l2,
-        ...l1
-      ]));
+      const combined = Array.from(new Set([...list, ...l3, ...l2, ...l1]));
       setTrackers(combined);
     } catch (err) {
       console.error('Erro ao carregar trackers:', err);
@@ -105,152 +116,98 @@ export default function Settings({
     }
   };
 
-  // Auto-mapping states
-  const [detectingStatuses, setDetectingStatuses] = useState(false);
-  const [autoMapFeedback, setAutoMapFeedback] = useState<{ success: boolean; message: string } | null>(null);
-
   const handleAutoMapStatuses = async () => {
     setDetectingStatuses(true);
     setAutoMapFeedback(null);
-
     try {
       const serverStatuses = await fetchRedmineStatuses(localConfig);
-      
       let addedCount = 0;
       const updatedStagesMap = { ...localConfig.stagesMap };
 
       serverStatuses.forEach((status) => {
         const name = status.name.trim();
-        // Preserva se o status já estiver mapeado (case-insensitive ou correspondência exata)
-        const alreadyMapped = Object.keys(updatedStagesMap).some(
-          (k) => k.toLowerCase() === name.toLowerCase()
-        );
-
+        const alreadyMapped = Object.keys(updatedStagesMap).some(k => k.toLowerCase() === name.toLowerCase());
         if (!alreadyMapped) {
-          let assignedStage: KanbanStage = 'To Do'; // fallback padrão
-
+          let assignedStage: KanbanStage = 'To Do';
           const lowerName = name.toLowerCase();
-
-          if (status.is_closed) {
-            assignedStage = 'Done';
-          } else if (status.is_default) {
-            assignedStage = 'Backlog';
-          } else if (
-            lowerName.includes('resolv') || 
-            lowerName.includes('fech') || 
-            lowerName.includes('done') || 
-            lowerName.includes('conclu') || 
-            lowerName.includes('rejeit') || 
-            lowerName.includes('entreg')
-          ) {
-            assignedStage = 'Done';
-          } else if (
-            lowerName.includes('desen') || 
-            lowerName.includes('prog') || 
-            lowerName.includes('andam') || 
-            lowerName.includes('doing') || 
-            lowerName.includes('test') || 
-            lowerName.includes('homolog') || 
-            lowerName.includes('valida') || 
-            lowerName.includes('review') || 
-            lowerName.includes('revis') || 
-            lowerName.includes('imped') || 
-            lowerName.includes('bloq')
-          ) {
-            assignedStage = 'In Progress';
-          } else if (
-            lowerName.includes('todo') || 
-            lowerName.includes('aprov') || 
-            lowerName.includes('prior') || 
-            lowerName.includes('discuss') || 
-            lowerName.includes('analis') || 
-            lowerName.includes('planej')
-          ) {
-            assignedStage = 'To Do';
-          } else {
-            assignedStage = 'Backlog';
-          }
-
+          if (status.is_closed) assignedStage = 'Done';
+          else if (status.is_default) assignedStage = 'Backlog';
+          else if (lowerName.includes('resolv') || lowerName.includes('fech') || lowerName.includes('done') || lowerName.includes('conclu') || lowerName.includes('rejeit') || lowerName.includes('entreg')) assignedStage = 'Done';
+          else if (lowerName.includes('desen') || lowerName.includes('prog') || lowerName.includes('andam') || lowerName.includes('doing') || lowerName.includes('test') || lowerName.includes('homolog') || lowerName.includes('valida') || lowerName.includes('review') || lowerName.includes('revis') || lowerName.includes('imped') || lowerName.includes('bloq')) assignedStage = 'In Progress';
+          else if (lowerName.includes('todo') || lowerName.includes('aprov') || lowerName.includes('prior') || lowerName.includes('discuss') || lowerName.includes('analis') || lowerName.includes('planej')) assignedStage = 'To Do';
+          else assignedStage = 'Backlog';
           updatedStagesMap[name] = assignedStage;
           addedCount++;
         }
       });
 
       if (addedCount > 0) {
-        setLocalConfig((prev) => ({
-          ...prev,
-          stagesMap: updatedStagesMap
-        }));
-        setAutoMapFeedback({
-          success: true,
-          message: `Sucesso! O assistente detectou e mapeou automaticamente ${addedCount} novos status do Redmine.`
-        });
+        setLocalConfig(prev => ({ ...prev, stagesMap: updatedStagesMap }));
+        setAutoMapFeedback({ success: true, message: `${t.autoMappedSuccess} ${addedCount} novos status do Redmine.` });
       } else {
-        setAutoMapFeedback({
-          success: true,
-          message: 'Todos os status detectados no seu Redmine já possuem mapeamentos ativos!'
-        });
+        setAutoMapFeedback({ success: true, message: t.allStatusesMapped });
       }
     } catch (err: any) {
-      console.error('Erro na detecção automática de status:', err);
-      setAutoMapFeedback({
-        success: false,
-        message: err.message || 'Falha ao conectar com o Redmine para listar status (Verifique CORS ou credenciais).'
-      });
+      setAutoMapFeedback({ success: false, message: err.message || 'Falha ao conectar com o Redmine para listar status.' });
     } finally {
       setDetectingStatuses(false);
     }
   };
 
   useEffect(() => {
-    // Carrega trackers e campos personalizados apenas na montagem ou quando o workspace de demonstração muda
     loadTrackers();
     loadCustomFields();
   }, [localConfig.useDemoWorkspace]);
 
+  // Intersection Observer for active section highlighting
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            setActiveSection(entry.target.id);
+          }
+        });
+      },
+      { threshold: 0.3, rootMargin: '-80px 0px -60% 0px' }
+    );
+    Object.values(sectionRefs.current).forEach(el => { if (el) observer.observe(el as HTMLDivElement); });
+    return () => observer.disconnect();
+  }, []);
+
+  const scrollToSection = (id: string) => {
+    const el = sectionRefs.current[id];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActiveSection(id);
+    }
+  };
+
   const handleSave = () => {
-    onSaveConfig({
-      ...localConfig,
-      isConnected: localConfig.useDemoWorkspace ? false : localConfig.isConnected
-    });
-    alert('Configurações salvas com sucesso no armazenamento local!');
+    onSaveConfig({ ...localConfig, isConnected: localConfig.useDemoWorkspace ? false : localConfig.isConnected });
+    alert(t.settingsSaved);
   };
 
   const handleTestConnection = async () => {
     if (!localConfig.serverUrl || !localConfig.token) {
-      setTestResult({
-        success: false,
-        message: 'Por favor, preencha a URL do Redmine e o Token de API.'
-      });
+      setTestResult({ success: false, message: t.fillUrlAndToken });
       return;
     }
-
     setTesting(true);
     setTestResult(null);
-
     try {
       const isOk = await testConnection(localConfig.serverUrl, localConfig.token);
       if (isOk) {
-        setTestResult({
-          success: true,
-          message: 'Conectado com sucesso ao Redmine! Suas credenciais são válidas.'
-        });
+        setTestResult({ success: true, message: t.connectionEstablished });
         const updatedConfig = { ...localConfig, isConnected: true, useDemoWorkspace: false };
         setLocalConfig(updatedConfig);
-        // Carrega trackers e campos personalizados automaticamente com as novas credenciais válidas
         loadTrackers(updatedConfig);
         loadCustomFields(updatedConfig);
       } else {
-        setTestResult({
-          success: false,
-          message: 'O servidor retornou um código de erro. Verifique sua chave de autenticação.'
-        });
+        setTestResult({ success: false, message: t.connectionFailed });
       }
     } catch (err: any) {
-      setTestResult({
-        success: false,
-        message: err.message || 'Falha de requisição de rede (Erro CORS comum em Redmines locais).'
-      });
+      setTestResult({ success: false, message: err.message || 'Falha de requisição de rede.' });
     } finally {
       setTesting(false);
     }
@@ -258,14 +215,7 @@ export default function Settings({
 
   const handleAddStatusMapping = () => {
     if (!newRedmineStatus.trim()) return;
-    
-    setLocalConfig(prev => ({
-      ...prev,
-      stagesMap: {
-        ...prev.stagesMap,
-        [newRedmineStatus.trim()]: newKanbanStage
-      }
-    }));
+    setLocalConfig(prev => ({ ...prev, stagesMap: { ...prev.stagesMap, [newRedmineStatus.trim()]: newKanbanStage } }));
     setNewRedmineStatus('');
   };
 
@@ -277,90 +227,67 @@ export default function Settings({
 
   const handleSetTrackerLevel = (trackerName: string, level: 'l3' | 'l2' | 'l1' | 'none') => {
     setLocalConfig(prev => {
-      const l1 = prev.trackers.l1.filter(t => t !== trackerName);
-      const l2 = prev.trackers.l2.filter(t => t !== trackerName);
-      const l3 = prev.trackers.l3.filter(t => t !== trackerName);
-
+      const l1 = prev.trackers.l1.filter(tr => tr !== trackerName);
+      const l2 = prev.trackers.l2.filter(tr => tr !== trackerName);
+      const l3 = prev.trackers.l3.filter(tr => tr !== trackerName);
       if (level === 'l1') l1.push(trackerName);
       else if (level === 'l2') l2.push(trackerName);
       else if (level === 'l3') l3.push(trackerName);
-
-      return {
-        ...prev,
-        trackers: { l1, l2, l3 }
-      };
+      return { ...prev, trackers: { l1, l2, l3 } };
     });
   };
 
   const handleAddCustomTracker = () => {
     if (!customTrackerName.trim()) return;
     const name = customTrackerName.trim();
-    if (!trackers.includes(name)) {
-      setTrackers(prev => [...prev, name]);
-    }
+    if (!trackers.includes(name)) setTrackers(prev => [...prev, name]);
     handleSetTrackerLevel(name, 'l1');
     setCustomTrackerName('');
   };
 
   const renderFieldMapper = (
-    label: string, 
-    valueKey: 'blockedFlag' | 'blockedReason' | 'team' | 'groupingField', 
+    label: string,
+    valueKey: 'blockedFlag' | 'blockedReason' | 'team' | 'groupingField',
     placeholder: string
   ) => {
     const currentValue = localConfig.fieldsMap[valueKey] || '';
-    // Check if current value matches any loaded custom field (by name or id)
     const matchedField = customFields.find(cf => cf.id === currentValue || cf.name === currentValue);
-    const selectValue = matchedField ? (matchedField.name) : (currentValue ? '__manual__' : '');
-    
-    // Ordena os campos em ordem alfabética para facilitar a busca visual
+    const selectValue = matchedField ? matchedField.name : (currentValue ? '__manual__' : '');
     const sortedCustomFields = [...customFields].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
     return (
-      <div className="space-y-2 bg-slate-50/50 p-4 rounded-xl border border-slate-150 transition-all hover:border-slate-350">
+      <div className="space-y-2 bg-slate-50/50 p-4 rounded-xl border border-slate-150 transition-all hover:border-slate-300">
         <div className="flex justify-between items-center">
           <label className="text-slate-700 font-bold block text-xs">{label}</label>
           {loadingCustomFields && <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#8a2d46]" />}
         </div>
-        
         <select
           value={selectValue}
           onChange={(e) => {
             const val = e.target.value;
             if (val === '__manual__') {
-              setLocalConfig(prev => ({
-                ...prev,
-                fieldsMap: { ...prev.fieldsMap, [valueKey]: '' }
-              }));
+              setLocalConfig(prev => ({ ...prev, fieldsMap: { ...prev.fieldsMap, [valueKey]: '' } }));
             } else {
-              setLocalConfig(prev => ({
-                ...prev,
-                fieldsMap: { ...prev.fieldsMap, [valueKey]: val }
-              }));
+              setLocalConfig(prev => ({ ...prev, fieldsMap: { ...prev.fieldsMap, [valueKey]: val } }));
             }
           }}
           className="w-full p-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-[#8a2d46] text-slate-700 transition-all"
         >
-          <option value="">-- Selecionar Campo --</option>
+          <option value="">{t.selectField}</option>
           {sortedCustomFields.map(cf => (
-            <option key={cf.id} value={cf.name}>
-              {cf.name} (ID: {cf.id})
-            </option>
+            <option key={cf.id} value={cf.name}>{cf.name} (ID: {cf.id})</option>
           ))}
-          <option value="__manual__">✍️ Outro / Digitar Manualmente...</option>
+          <option value="__manual__">{t.manualEntry}</option>
         </select>
-
         {(selectValue === '__manual__' || (!matchedField && currentValue)) && (
           <div className="space-y-1 mt-1">
-            <span className="text-[10px] text-slate-400 font-medium uppercase">Valor Mapeado (ID ou Nome)</span>
+            <span className="text-[10px] text-slate-400 font-medium uppercase">{t.mappedValue}</span>
             <input
               type="text"
               value={currentValue}
-              onChange={(e) => setLocalConfig(prev => ({
-                ...prev,
-                fieldsMap: { ...prev.fieldsMap, [valueKey]: e.target.value }
-              }))}
+              onChange={(e) => setLocalConfig(prev => ({ ...prev, fieldsMap: { ...prev.fieldsMap, [valueKey]: e.target.value } }))}
               placeholder={placeholder}
-              className="w-full p-2 text-xs font-normal rounded-lg border border-slate-200 focus:ring-2 focus:ring-[#8a2d46] bg-white text-slate-800 transition-all placeholder:text-slate-350"
+              className="w-full p-2 text-xs font-normal rounded-lg border border-slate-200 focus:ring-2 focus:ring-[#8a2d46] bg-white text-slate-800 transition-all"
             />
           </div>
         )}
@@ -368,362 +295,364 @@ export default function Settings({
     );
   };
 
+  // Section navigator config
+  const navSections = [
+    { id: 'connection', icon: Server,      label: t.section1Title.replace(/^\d+\.\s*/, '') },
+    { id: 'themes',     icon: Palette,     label: t.section2Title.replace(/^\d+\.\s*/, '') },
+    { id: 'trackers',   icon: Tag,         label: t.section3Title.replace(/^\d+\.\s*/, '') },
+    { id: 'fields',     icon: Sliders,     label: t.section4Title.replace(/^\d+\.\s*/, '') },
+    { id: 'kanban',     icon: FolderLock,  label: t.section5Title.replace(/^\d+\.\s*/, '') },
+    { id: 'language',   icon: Globe,       label: t.section6Title.replace(/^\d+\.\s*/, '') },
+  ];
+
+  // Derived data for compact tracker view
+  const configTrackers = localConfig?.trackers || {};
+  const tl3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
+  const tl2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
+  const tl1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
+
+  const getTrackerLevel = (tracker: string): 'l3' | 'l2' | 'l1' | 'none' => {
+    if (tl3.includes(tracker)) return 'l3';
+    if (tl2.includes(tracker)) return 'l2';
+    if (tl1.includes(tracker)) return 'l1';
+    return 'none';
+  };
+
+  const filteredTrackers = trackers.filter(tr =>
+    tr.toLowerCase().includes(trackerFilter.toLowerCase())
+  );
+
+  // Derived data for compact stages view
+  const allStageEntries = Object.entries(localConfig.stagesMap);
+  const filteredStageEntries = allStageEntries.filter(([status, stage]) => {
+    const matchesText = status.toLowerCase().includes(statusFilter.toLowerCase());
+    const matchesStage = activeStageFilter === 'all' || stage === activeStageFilter;
+    return matchesText && matchesStage;
+  });
+
+  const stageCounts = STAGE_OPTIONS.reduce((acc, s) => {
+    acc[s] = allStageEntries.filter(([, st]) => st === s).length;
+    return acc;
+  }, {} as Record<string, number>);
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-12 text-left">
-      
-      {/* SETTINGS HEADER */}
-      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-[#8a2d46] text-white flex items-center justify-center">
+    <div className="max-w-4xl mx-auto pb-16 text-left">
+
+      {/* ── HEADER ─────────────────────────────────────────────────── */}
+      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg bg-[#8a2d46] text-white flex items-center justify-center flex-shrink-0">
           <SettingsIcon className="w-5 h-5 animate-spin" />
         </div>
         <div>
-          <h2 className="text-lg font-bold text-slate-800">Painel de Ajustes & Integrações</h2>
-          <p className="text-xs text-slate-400">Configure mapeamento de campos personalizados, conexão de servidores e preferências visuais do Flight Levels</p>
+          <h2 className="text-lg font-bold text-slate-800">{t.settingsTitle}</h2>
+          <p className="text-xs text-slate-400">{t.settingsSubtitle}</p>
         </div>
       </div>
 
-      {/* SECTION 1: REDMINE CONNECTION SETTINGS */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs">
-        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
-          <Server className="w-5 h-5 text-indigo-600" /> 1. Conexão com Servidor Redmine
-        </h3>
-
-        <div className="space-y-4 pt-2">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
-            <div className="space-y-1.5Packed">
-              <label className="text-slate-500 block mb-1">URL Oficial do Servidor Redmine</label>
-              <input
-                type="text"
-                value={localConfig.serverUrl}
-                onChange={(e) => setLocalConfig(prev => ({ ...prev, serverUrl: e.target.value }))}
-                placeholder="Ex: https://meu-redmine.empresa.com"
-                className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-slate-500 block mb-1">API Access Token (Chave de Acesso)</label>
-              <input
-                type="password"
-                value={localConfig.token}
-                onChange={(e) => setLocalConfig(prev => ({ ...prev, token: e.target.value }))}
-                placeholder="Inserir hash de chave rest..."
-                className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
-              />
-            </div>
-          </div>
-
-          {/* Test Connection Buttons */}
-          <div className="flex items-center gap-3 pt-2">
+      {/* ── SECTION NAVIGATOR (sticky) ──────────────────────────────── */}
+      <div className="sticky top-0 z-20 mb-6">
+        <div className="bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl shadow-sm px-2 py-1.5 flex items-center gap-1 overflow-x-auto scrollbar-hide">
+          {navSections.map(({ id, icon: Icon, label }) => (
             <button
-              type="button"
-              onClick={handleTestConnection}
-              disabled={testing}
-              className="py-1.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-md border flex items-center gap-1.5 disabled:opacity-50"
+              key={id}
+              onClick={() => scrollToSection(id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0 ${
+                activeSection === id
+                  ? 'bg-[#8a2d46] text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+              }`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
-              <span>Testar Conexão</span>
+              <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+          {/* Save shortcut */}
+          <div className="ml-auto flex-shrink-0 pl-2 border-l border-slate-200">
+            <button
+              onClick={handleSave}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-[#8a2d46] text-white hover:bg-[#80253e] transition-all whitespace-nowrap shadow-sm"
+            >
+              <CheckCircle className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{t.saveAllSettings}</span>
             </button>
           </div>
-
-          {/* Connection Status Tester Response feedback block */}
-          {testResult && (
-            <div className={`p-4.5 rounded-lg border text-xs leading-loose ${testResult.success ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-red-50 border-red-300 text-red-900'}`}>
-              <div className="flex items-center gap-2">
-                {testResult.success ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600">✕</div>}
-                <span className="font-bold">{testResult.success ? 'Conexão Estabelecida!' : 'Falha na Validação'}</span>
-              </div>
-              <p className="mt-1.5 text-[11px] opacity-90">{testResult.message}</p>
-              {!testResult.success && (
-                <div className="pt-2 text-[10px] text-slate-500">
-                  💡 <b>Como resolver erro CORS do Redmine:</b> Adicione as seguintes configurações de cabeçalho no arquivo <code>additional_environment.rb</code> de seu Redmine: <br/>
-                  <code>config.middleware.insert_before 0, Rack::Cors do |allows| allows.allow do origins '*'; resource '*', headers: :any, methods: [:get, :post, :options] end end</code>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
-      {/* SECTION 2: BRAND THEME OPTIONS */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs">
-        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
-          <Palette className="w-5 h-5 text-indigo-600" /> 2. Temas Visuais (Enterprise Palette)
-        </h3>
+      <div className="space-y-6">
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          
-          {/* Theme Modern */}
-          <button
-            onClick={() => setLocalConfig(prev => ({ ...prev, activeTheme: 'modern' }))}
-            className={`p-4 rounded-xl border text-left space-y-2.5 transition-all outline-hidden ${
-              localConfig.activeTheme === 'modern' 
-                ? 'border-[#8a2d46] ring-2 ring-[#8a2d46]/30 bg-purple-50/50' 
-                : 'border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <span className="font-bold text-sm block text-slate-800">Modern RedLevels</span>
-            <span className="text-[11px] text-slate-400 block line-clamp-2">Visual elegante baseado em bordas limpas e paleta de corporação Deep Crimson.</span>
-            <div className="flex gap-1.5 pt-1">
-              <span className="w-4 h-4 rounded-full bg-[#8a2d46]" />
-              <span className="w-4 h-4 rounded-full bg-indigo-600" />
-              <span className="w-4 h-4 rounded-full bg-[#f8f9ff] border" />
-            </div>
-          </button>
-
-          {/* Theme Classic */}
-          <button
-            onClick={() => setLocalConfig(prev => ({ ...prev, activeTheme: 'classic' }))}
-            className={`p-4 rounded-xl border text-left space-y-2.5 transition-all outline-hidden ${
-              localConfig.activeTheme === 'classic' 
-                ? 'border-blue-600 ring-2 ring-blue-600/30 bg-blue-50/40' 
-                : 'border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <span className="font-bold text-sm block text-slate-800">Classic Redmine</span>
-            <span className="text-[11px] text-slate-400 block line-clamp-2">Relembra a identidade estética azul rústica tradicional da comunidade Redmine.</span>
-            <div className="flex gap-1.5 pt-1">
-              <span className="w-4 h-4 rounded-full bg-[#2b5d8f]" />
-              <span className="w-4 h-4 rounded-full bg-yellow-500" />
-              <span className="w-4 h-4 rounded-full bg-[#edf2f7] border" />
-            </div>
-          </button>
-
-          {/* Theme High Contrast */}
-          <button
-            onClick={() => setLocalConfig(prev => ({ ...prev, activeTheme: 'contrast' }))}
-            className={`p-4 rounded-xl border text-left space-y-2.5 transition-all outline-hidden ${
-              localConfig.activeTheme === 'contrast' 
-                ? 'border-[#8a2d46] ring-2 ring-[#8a2d46]/30 bg-[#fffcfc]' 
-                : 'border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <span className="font-bold text-sm block text-slate-800">High Contrast Red (Light)</span>
-            <span className="text-[11px] text-slate-400 block line-clamp-2">Contraste claro purista com a paleta corporativa vermelha e bordas marcadas.</span>
-            <div className="flex gap-1.5 pt-1">
-              <span className="w-4 h-4 rounded-full bg-[#8a2d46]" />
-              <span className="w-4 h-4 rounded-full bg-white border border-[#8a2d46]" />
-              <span className="w-4 h-4 rounded-full bg-slate-100" />
-            </div>
-          </button>
-
-        </div>
-      </div>
-
-      {/* SECTION 3: TRACKER SETTINGS PER FLIGHT LEVEL */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-2">
-          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-            <Tag className="w-5 h-5 text-indigo-600" /> 3. Mapeador de Trackers por Nível de Voo
+        {/* ── SECTION 1: CONNECTION ──────────────────────────────────── */}
+        <div
+          id="connection"
+          ref={el => { sectionRefs.current['connection'] = el; }}
+          className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs scroll-mt-20"
+        >
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
+            <Server className="w-5 h-5 text-indigo-600" /> {t.section1Title}
           </h3>
-          <div className="flex items-center gap-2">
-            {localConfig.useDemoWorkspace ? (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                Modo de Demonstração (Trackers Fictícios)
-              </span>
-            ) : (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Conectado ao Redmine
-              </span>
+          <div className="space-y-4 pt-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
+              <div className="space-y-1.5">
+                <label className="text-slate-500 block mb-1">{t.labelServerUrl}</label>
+                <input
+                  type="text"
+                  value={localConfig.serverUrl}
+                  onChange={(e) => setLocalConfig(prev => ({ ...prev, serverUrl: e.target.value }))}
+                  placeholder={t.placeholderServerUrl}
+                  className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-slate-500 block mb-1">{t.labelApiToken}</label>
+                <input
+                  type="password"
+                  value={localConfig.token}
+                  onChange={(e) => setLocalConfig(prev => ({ ...prev, token: e.target.value }))}
+                  placeholder={t.placeholderToken}
+                  className="w-full p-2 text-sm font-normal rounded-md border text-slate-800 focus:ring-2 focus:ring-[#8a2d46]"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testing}
+                className="py-1.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-md border flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
+                <span>{testing ? t.testingConnection : t.testConnection}</span>
+              </button>
+            </div>
+            {testResult && (
+              <div className={`p-4 rounded-lg border text-xs leading-loose ${testResult.success ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-red-50 border-red-300 text-red-900'}`}>
+                <div className="flex items-center gap-2">
+                  {testResult.success
+                    ? <CheckCircle className="w-5 h-5 text-emerald-600" />
+                    : <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600">✕</div>}
+                  <span className="font-bold">{testResult.success ? t.connectionEstablished : t.connectionFailed}</span>
+                </div>
+                <p className="mt-1.5 text-[11px] opacity-90">{testResult.message}</p>
+              </div>
             )}
-            <button
-              onClick={loadTrackers}
-              disabled={loadingTrackers}
-              className="p-1 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-700 disabled:opacity-50 transition-colors"
-              title="Recarregar trackers do Redmine"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingTrackers ? 'animate-spin' : ''}`} />
-            </button>
           </div>
         </div>
-        
-        <p className="text-xs text-slate-400 leading-relaxed">
-          Associe cada Tipo de Tarefa (Tracker) do seu Redmine ao seu respectivo nível do Flight Levels do modelo Klaus Leopold. Isso ditará em quais quadros e visões cada tarefa será agrupada.
-        </p>
 
-        {loadingTrackers ? (
-          <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400">
-            <RefreshCw className="w-6 h-6 animate-spin text-[#8a2d46]" />
-            <span className="text-xs font-medium">Carregando trackers do Redmine...</span>
+        {/* ── SECTION 2: THEMES ─────────────────────────────────────── */}
+        <div
+          id="themes"
+          ref={el => { sectionRefs.current['themes'] = el; }}
+          className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs scroll-mt-20"
+        >
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
+            <Palette className="w-5 h-5 text-indigo-600" /> {t.section2Title}
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {([
+              { key: 'modern',   name: t.themeModernName,   desc: t.themeModernDesc,   colors: ['bg-[#8a2d46]', 'bg-indigo-600', 'bg-[#f8f9ff] border'], ring: 'border-[#8a2d46] ring-[#8a2d46]/30 bg-purple-50/50' },
+              { key: 'classic',  name: t.themeClassicName,  desc: t.themeClassicDesc,  colors: ['bg-[#2b5d8f]', 'bg-yellow-500', 'bg-[#edf2f7] border'],  ring: 'border-blue-600 ring-blue-600/30 bg-blue-50/40' },
+              { key: 'contrast', name: t.themeContrastName, desc: t.themeContrastDesc, colors: ['bg-[#8a2d46]', 'bg-white border border-[#8a2d46]', 'bg-slate-100'], ring: 'border-[#8a2d46] ring-[#8a2d46]/30 bg-[#fffcfc]' },
+            ] as const).map(theme => (
+              <button
+                key={theme.key}
+                onClick={() => setLocalConfig(prev => ({ ...prev, activeTheme: theme.key as any }))}
+                className={`p-4 rounded-xl border text-left space-y-2.5 transition-all outline-hidden ${
+                  localConfig.activeTheme === theme.key
+                    ? `ring-2 ${theme.ring}`
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <span className="font-bold text-sm block text-slate-800">{theme.name}</span>
+                <span className="text-[11px] text-slate-400 block line-clamp-2">{theme.desc}</span>
+                <div className="flex gap-1.5 pt-1">
+                  {theme.colors.map((c, i) => <span key={i} className={`w-4 h-4 rounded-full ${c}`} />)}
+                </div>
+              </button>
+            ))}
           </div>
-        ) : trackers.length === 0 ? (
-          <div className="py-6 text-center text-xs text-slate-400">
-            Nenhum tracker localizado. Use o formulário abaixo para adicionar trackers manualmente.
-          </div>
-        ) : (
-          <div className="border border-slate-150 rounded-xl overflow-hidden bg-slate-50/50">
-            <div className="divide-y divide-slate-150">
-              {trackers.map((tracker) => {
-                // Determine current level mapping
-                let currentLevel: 'l3' | 'l2' | 'l1' | 'none' = 'none';
-                const configTrackers = localConfig?.trackers || {};
-                const l3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
-                const l2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
-                const l1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
+        </div>
 
-                if (l3.includes(tracker)) currentLevel = 'l3';
-                else if (l2.includes(tracker)) currentLevel = 'l2';
-                else if (l1.includes(tracker)) currentLevel = 'l1';
+        {/* ── SECTION 3: TRACKERS ───────────────────────────────────── */}
+        <div
+          id="trackers"
+          ref={el => { sectionRefs.current['trackers'] = el; }}
+          className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs scroll-mt-20"
+        >
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-2">
+            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <Tag className="w-5 h-5 text-indigo-600" /> {t.section3Title}
+            </h3>
+            <div className="flex items-center gap-2">
+              {localConfig.useDemoWorkspace ? (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">{t.sectionDemoMode}</span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">{t.sectionConnectedMode}</span>
+              )}
+              <button onClick={() => loadTrackers()} disabled={loadingTrackers} className="p-1 rounded-md hover:bg-slate-100 text-slate-500 disabled:opacity-50 transition-colors" title={t.reloadTrackers}>
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingTrackers ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed">{t.trackersDescription}</p>
+
+          {/* Summary pills */}
+          <div className="flex flex-wrap gap-2">
+            {([
+              { level: 'l3', label: t.levelStrategic, count: tl3.length, bg: 'bg-purple-100 text-purple-800 border-purple-200' },
+              { level: 'l2', label: t.levelTactical,  count: tl2.length, bg: 'bg-blue-100 text-blue-800 border-blue-200' },
+              { level: 'l1', label: t.levelOperational, count: tl1.length, bg: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+              { level: 'none', label: t.levelIgnore, count: trackers.length - tl3.length - tl2.length - tl1.length, bg: 'bg-slate-100 text-slate-600 border-slate-200' },
+            ] as const).map(({ level, label, count, bg }) => (
+              <span key={level} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${bg}`}>
+                <span>{label}</span>
+                <span className="opacity-60">({count})</span>
+              </span>
+            ))}
+          </div>
+
+          {/* Search filter */}
+          <div className="relative">
+            <input
+              type="text"
+              value={trackerFilter}
+              onChange={e => setTrackerFilter(e.target.value)}
+              placeholder="Filtrar trackers..."
+              className="w-full pl-3 pr-8 py-2 text-xs border rounded-lg focus:ring-2 focus:ring-[#8a2d46] bg-slate-50"
+            />
+            {trackerFilter && (
+              <button onClick={() => setTrackerFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+            )}
+          </div>
+
+          {/* Tracker cards grid */}
+          {loadingTrackers ? (
+            <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400">
+              <RefreshCw className="w-6 h-6 animate-spin text-[#8a2d46]" />
+              <span className="text-xs font-medium">{t.loadingTrackers}</span>
+            </div>
+          ) : filteredTrackers.length === 0 ? (
+            <div className="py-6 text-center text-xs text-slate-400">
+              {trackerFilter ? 'Nenhum tracker encontrado para este filtro.' : t.noTrackers}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {filteredTrackers.map((tracker) => {
+                const currentLevel = getTrackerLevel(tracker);
+                const levelMeta = {
+                  l3:   { label: t.levelStrategic,   dot: 'bg-purple-500', cardBg: 'border-purple-200 bg-purple-50/40' },
+                  l2:   { label: t.levelTactical,     dot: 'bg-blue-500',   cardBg: 'border-blue-200 bg-blue-50/40' },
+                  l1:   { label: t.levelOperational,  dot: 'bg-emerald-500',cardBg: 'border-emerald-200 bg-emerald-50/40' },
+                  none: { label: t.levelIgnore,        dot: 'bg-slate-300',  cardBg: 'border-slate-200 bg-white' },
+                }[currentLevel];
 
                 return (
-                  <div key={tracker} className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white hover:bg-slate-50/40 transition-colors">
-                    <div className="space-y-1">
-                      <span className="font-bold text-slate-800 text-xs sm:text-sm">{tracker}</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          currentLevel === 'l3' ? 'bg-purple-600 animate-pulse' :
-                          currentLevel === 'l2' ? 'bg-blue-600' :
-                          currentLevel === 'l1' ? 'bg-emerald-600' : 'bg-slate-300'
-                        }`} />
-                        <span className="text-[10px] text-slate-400 font-semibold uppercase">
-                          {currentLevel === 'l3' ? 'N3 Estratégico' :
-                           currentLevel === 'l2' ? 'N2 Tático' :
-                           currentLevel === 'l1' ? 'N1 Operacional' : 'Ignorado'}
-                        </span>
-                      </div>
+                  <div
+                    key={tracker}
+                    className={`rounded-xl border p-3 transition-all ${levelMeta.cardBg}`}
+                  >
+                    {/* Tracker name + level */}
+                    <div className="flex items-start justify-between gap-1 mb-2.5">
+                      <span className="font-bold text-slate-800 text-xs leading-tight truncate flex-1">{tracker}</span>
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-0.5 ${levelMeta.dot}`} />
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-1">
-                      {/* L3 Pill Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleSetTrackerLevel(tracker, 'l3')}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
-                          currentLevel === 'l3'
-                            ? 'bg-purple-100 text-purple-800 border-purple-300 shadow-xs font-semibold'
-                            : 'bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 border-slate-200 font-medium'
-                        }`}
-                      >
-                        N3 Estratégico
-                      </button>
-
-                      {/* L2 Pill Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleSetTrackerLevel(tracker, 'l2')}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
-                          currentLevel === 'l2'
-                            ? 'bg-blue-100 text-blue-800 border-blue-300 shadow-xs font-semibold'
-                            : 'bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 border-slate-200 font-medium'
-                        }`}
-                      >
-                        N2 Tático
-                      </button>
-
-                      {/* L1 Pill Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleSetTrackerLevel(tracker, 'l1')}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
-                          currentLevel === 'l1'
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300 shadow-xs font-semibold'
-                            : 'bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 border-slate-200 font-medium'
-                        }`}
-                      >
-                        N1 Operacional
-                      </button>
-
-                      {/* Ignorar Pill Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleSetTrackerLevel(tracker, 'none')}
-                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md border transition-all ${
-                          currentLevel === 'none'
-                            ? 'bg-slate-100 text-slate-800 border-slate-350 shadow-xs font-semibold'
-                            : 'bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50 border-slate-200 font-medium'
-                        }`}
-                      >
-                        Ignorar
-                      </button>
+                    {/* 4 quick-assign buttons in a row */}
+                    <div className="grid grid-cols-4 gap-1">
+                      {([
+                        { level: 'l3' as const, short: 'L3', activeClass: 'bg-purple-600 text-white border-purple-600' },
+                        { level: 'l2' as const, short: 'L2', activeClass: 'bg-blue-600 text-white border-blue-600' },
+                        { level: 'l1' as const, short: 'L1', activeClass: 'bg-emerald-600 text-white border-emerald-600' },
+                        { level: 'none' as const, short: '—', activeClass: 'bg-slate-500 text-white border-slate-500' },
+                      ]).map(({ level, short, activeClass }) => (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => handleSetTrackerLevel(tracker, level)}
+                          className={`py-1 text-[10px] font-bold rounded border transition-all ${
+                            currentLevel === level
+                              ? activeClass
+                              : 'bg-white text-slate-500 hover:text-slate-700 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {short}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 );
               })}
             </div>
+          )}
+
+          {/* Add custom tracker */}
+          <div className="flex items-end gap-2 max-w-sm pt-2 border-t border-slate-100">
+            <div className="flex-1 space-y-1 text-xs font-semibold">
+              <label className="text-slate-500 block">{t.addCustomTracker}</label>
+              <input
+                type="text"
+                value={customTrackerName}
+                onChange={(e) => setCustomTrackerName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddCustomTracker()}
+                placeholder={t.placeholderCustomTracker}
+                className="w-full p-2 text-xs font-normal border rounded-md focus:ring-2 focus:ring-[#8a2d46]"
+              />
+            </div>
+            <button
+              onClick={handleAddCustomTracker}
+              type="button"
+              className="p-2 bg-[#8a2d46] hover:bg-[#80253e] text-white rounded-md border border-[#8a2d46] transition-all flex items-center justify-center w-9 h-9 flex-shrink-0"
+              title={t.addCustomTracker}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
           </div>
-        )}
+        </div>
 
-        {/* Add custom tracker manually */}
-        <div className="flex items-end gap-3 max-w-md pt-2 border-t border-slate-100">
-          <div className="flex-1 space-y-1.5 font-semibold text-xs">
-            <label className="text-slate-500 block">Adicionar Tracker Personalizado Manualmente</label>
-            <input
-              type="text"
-              value={customTrackerName}
-              onChange={(e) => setCustomTrackerName(e.target.value)}
-              placeholder="Ex: Epic, Sub-tarefa"
-              className="w-full p-2 text-xs font-normal border rounded-md focus:ring-2 focus:ring-[#8a2d46]"
-            />
+        {/* ── SECTION 4: CUSTOM FIELDS ──────────────────────────────── */}
+        <div
+          id="fields"
+          ref={el => { sectionRefs.current['fields'] = el; }}
+          className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs scroll-mt-20"
+        >
+          <h3 className="text-base font-bold text-slate-800 flex items-center justify-between border-b pb-2">
+            <span className="flex items-center gap-2">
+              <Sliders className="w-5 h-5 text-indigo-600" /> {t.section4Title}
+            </span>
+            <button
+              type="button"
+              onClick={() => loadCustomFields()}
+              disabled={loadingCustomFields}
+              className="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 disabled:opacity-50 transition-colors"
+              title={t.reloadCustomFields}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingCustomFields ? 'animate-spin' : ''}`} />
+            </button>
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed mb-2">{t.customFieldsDesc}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
+            {renderFieldMapper(t.fieldBlockedFlag,   'blockedFlag',    t.placeholderBlockedFlag)}
+            {renderFieldMapper(t.fieldBlockedReason, 'blockedReason',  t.placeholderBlockedReason)}
+            {renderFieldMapper(t.fieldTeam,          'team',           t.placeholderTeam)}
+            {renderFieldMapper(t.fieldGrouping,      'groupingField',  t.placeholderGrouping)}
           </div>
-          <button
-            onClick={handleAddCustomTracker}
-            type="button"
-            className="p-2 bg-[#8a2d46] hover:bg-[#80253e] text-white rounded-md text-xs font-bold border border-[#8a2d46] transition-all flex items-center justify-center w-9 h-9"
-            title="Adicionar tracker personalizado"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
         </div>
-      </div>
 
-      {/* SECTION 4: CUSTOM FIELDS MAP */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs">
-        <h3 className="text-base font-bold text-slate-800 flex items-center justify-between border-b pb-2">
-          <span className="flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-indigo-600" /> 4. Mapeador de Campos Personalizados
-          </span>
-          <button
-            type="button"
-            onClick={() => loadCustomFields()}
-            disabled={loadingCustomFields}
-            className="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 disabled:opacity-50 transition-colors"
-            title="Recarregar campos do Redmine"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingCustomFields ? 'animate-spin' : ''}`} />
-          </button>
-        </h3>
-        
-        <p className="text-xs text-slate-400 leading-relaxed mb-2">
-          Selecione os campos personalizados (Custom Fields) carregados do seu Redmine ou escolha "Outro" para digitar o nome/ID manualmente.
-        </p>
+        {/* ── SECTION 5: KANBAN STAGES ──────────────────────────────── */}
+        <div
+          id="kanban"
+          ref={el => { sectionRefs.current['kanban'] = el; }}
+          className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs scroll-mt-20"
+        >
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
+            <FolderLock className="w-5 h-5 text-indigo-600" /> {t.section5Title}
+          </h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold">
-          {renderFieldMapper(
-            'Marcador de Bloqueio (Custom Block Flag)',
-            'blockedFlag',
-            'Ex: Impedimento, blocked_flag, 12'
-          )}
-          {renderFieldMapper(
-            'Razão de Bloqueios (Block Reason Field)',
-            'blockedReason',
-            'Ex: blocked_reason, Causa de impedimento, 13'
-          )}
-          {renderFieldMapper(
-            'Dono / Time Operacional (Squad Field ID)',
-            'team',
-            'Ex: squad_responsável, squad_id, 14'
-          )}
-          {renderFieldMapper(
-            'Mapeador de Área L2 (Agrupador de Kanban)',
-            'groupingField',
-            'Ex: area_coordenacao, cluster_valor, 15'
-          )}
-        </div>
-      </div>
-
-      {/* SECTION 5: KANBAN STATUS STAGES MAPPING */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs">
-        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
-          <FolderLock className="w-5 h-5 text-indigo-600" /> 5. Mapeador de Ciclos e Estágios Kanban
-        </h3>
-
-        <div className="space-y-3 text-xs leading-relaxed">
+          {/* Auto-map CTA */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 border border-slate-150 p-4 rounded-xl">
             <div className="space-y-1">
-              <p className="text-slate-700 font-bold text-xs sm:text-sm">Configuração Automática Inteligente</p>
-              <p className="text-slate-400 text-[11px] leading-snug">
-                Detecte e vincule instantaneamente todos os status do seu Redmine utilizando o motor preditivo.
-              </p>
+              <p className="text-slate-700 font-bold text-xs sm:text-sm">{t.autoMapTitle}</p>
+              <p className="text-slate-400 text-[11px] leading-snug">{t.autoMapDesc}</p>
             </div>
             <button
               type="button"
@@ -732,130 +661,207 @@ export default function Settings({
               className="py-2 px-4 rounded-lg bg-[#8a2d46] hover:bg-[#80253e] disabled:opacity-50 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 whitespace-nowrap self-start sm:self-center"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${detectingStatuses ? 'animate-spin' : ''}`} />
-              <span>{detectingStatuses ? 'Detectando...' : 'Detectar e Mapear Automaticamente'}</span>
+              <span>{detectingStatuses ? t.autoMapDetecting : t.autoMapButton}</span>
             </button>
           </div>
 
           {autoMapFeedback && (
             <div className={`p-3 rounded-lg border text-[11px] leading-relaxed flex items-start gap-2 ${
-              autoMapFeedback.success 
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-850' 
-                : 'bg-red-50 border-red-200 text-red-950'
+              autoMapFeedback.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-red-50 border-red-200 text-red-950'
             }`}>
-              {autoMapFeedback.success ? (
-                <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-              ) : (
-                <XCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-              )}
+              {autoMapFeedback.success
+                ? <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                : <XCircle    className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />}
               <p className="font-semibold">{autoMapFeedback.message}</p>
             </div>
           )}
 
-          <p className="text-slate-400">Associe o nome exato dos status cadastrados no seu servidor Redmine correspondente a um dos estágios consolidados de agilidade:</p>
-          
-          <div className="border rounded-lg overflow-hidden max-w-lg bg-zinc-50">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
-                <tr>
-                  <th className="p-2.5">Status Redmine</th>
-                  <th className="p-2.5">Mapeado Para</th>
-                  <th className="p-2.5 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 text-slate-600">
-                {Object.entries(localConfig.stagesMap).map(([redmineSt, kanbanSg]) => (
-                  <tr key={redmineSt} className="hover:bg-slate-100/50">
-                    <td className="p-2.5 font-mono text-[11px] font-bold">{redmineSt}</td>
-                    <td className="p-2.5">
-                      <select
-                        value={kanbanSg}
-                        onChange={(e) => {
-                          const val = e.target.value as KanbanStage;
-                          setLocalConfig(prev => ({
-                            ...prev,
-                            stagesMap: {
-                              ...prev.stagesMap,
-                              [redmineSt]: val
-                            }
-                          }));
-                        }}
-                        className={`p-1.5 text-[11px] font-bold rounded-lg border bg-white focus:ring-2 focus:ring-[#8a2d46] transition-all cursor-pointer ${
-                          kanbanSg === 'Done' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' :
-                          kanbanSg === 'In Progress' ? 'bg-blue-50 border-blue-200 text-blue-800' :
-                          kanbanSg === 'To Do' ? 'bg-indigo-50 border-indigo-200 text-indigo-800' :
-                          'bg-slate-50 border-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {STAGE_OPTIONS.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-2.5 text-right">
-                      <button 
-                        onClick={() => handleRemoveStatusMapping(redmineSt)}
-                        className="text-red-500 hover:text-red-700 hover:underline font-semibold"
-                      >
-                        Desfazer
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Stats row + filter bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Stage filter pills */}
+            <button
+              onClick={() => setActiveStageFilter('all')}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${
+                activeStageFilter === 'all'
+                  ? 'bg-slate-700 text-white border-slate-700'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              Todos ({allStageEntries.length})
+            </button>
+            {STAGE_OPTIONS.map(stage => {
+              const col = STAGE_COLORS[stage];
+              const isActive = activeStageFilter === stage;
+              return (
+                <button
+                  key={stage}
+                  onClick={() => setActiveStageFilter(stage)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${
+                    isActive
+                      ? `${col.bg} ${col.border} ${col.text}`
+                      : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${col.dot}`} />
+                  {stage} ({stageCounts[stage] ?? 0})
+                </button>
+              );
+            })}
+
+            {/* Text search */}
+            <div className="relative ml-auto">
+              <input
+                type="text"
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                placeholder="Buscar status..."
+                className="pl-3 pr-7 py-1.5 text-xs border rounded-lg focus:ring-2 focus:ring-[#8a2d46] bg-slate-50 w-40"
+              />
+              {statusFilter && (
+                <button onClick={() => setStatusFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+              )}
+            </div>
           </div>
 
-          {/* Form to add tracking stages */}
-          <div className="flex flex-col sm:flex-row items-end gap-3 max-w-lg pt-3 border-t">
-            <div className="flex-1 space-y-1.5 font-semibold">
-              <label className="text-slate-500 text-[11px] block">Registrar Novo Status Redmine</label>
+          {/* Compact cards grid — one card per Redmine status */}
+          {filteredStageEntries.length === 0 ? (
+            <div className="py-6 text-center text-xs text-slate-400">Nenhum status encontrado.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {filteredStageEntries.map(([redmineSt, kanbanSg]) => {
+                const col = STAGE_COLORS[kanbanSg as KanbanStage];
+                return (
+                  <div
+                    key={redmineSt}
+                    className={`rounded-xl border p-3 transition-all ${col.bg} ${col.border}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <span className={`font-mono font-bold text-[11px] leading-tight ${col.text} truncate flex-1`}>{redmineSt}</span>
+                      <button
+                        onClick={() => handleRemoveStatusMapping(redmineSt)}
+                        className="text-slate-400 hover:text-red-600 transition-colors flex-shrink-0 text-[10px] font-bold"
+                        title={t.removeMapping}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {/* Inline stage selector as pill buttons */}
+                    <div className="grid grid-cols-4 gap-1">
+                      {STAGE_OPTIONS.map(opt => {
+                        const optCol = STAGE_COLORS[opt];
+                        const isSelected = kanbanSg === opt;
+                        return (
+                          <button
+                            key={opt}
+                            onClick={() => setLocalConfig(prev => ({
+                              ...prev,
+                              stagesMap: { ...prev.stagesMap, [redmineSt]: opt }
+                            }))}
+                            className={`py-0.5 text-[9px] font-bold rounded border transition-all truncate px-0.5 ${
+                              isSelected
+                                ? `${optCol.bg} ${optCol.border} ${optCol.text}`
+                                : 'bg-white/60 text-slate-400 border-white/60 hover:bg-white hover:text-slate-600'
+                            }`}
+                            title={opt}
+                          >
+                            {opt === 'In Progress' ? 'WIP' : opt === 'Backlog' ? 'BL' : opt === 'To Do' ? 'TODO' : 'Done'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Add new status form */}
+          <div className="pt-3 border-t border-slate-100">
+            <p className="text-xs font-bold text-slate-500 mb-2">{t.addStatusMapping}</p>
+            <div className="flex flex-wrap items-end gap-2">
               <input
                 type="text"
                 value={newRedmineStatus}
                 onChange={(e) => setNewRedmineStatus(e.target.value)}
-                placeholder="Ex: Em Homologação"
-                className="w-full p-2 text-xs font-normal border rounded-md"
+                onKeyDown={e => e.key === 'Enter' && handleAddStatusMapping()}
+                placeholder={t.placeholderRedmineStatus}
+                className="flex-1 min-w-[160px] p-2 text-xs border rounded-md focus:ring-2 focus:ring-[#8a2d46]"
               />
+              <div className="flex items-center gap-2">
+                <select
+                  value={newKanbanStage}
+                  onChange={(e) => setNewKanbanStage(e.target.value as KanbanStage)}
+                  className="p-2 text-xs border rounded-md focus:ring-2 focus:ring-[#8a2d46]"
+                >
+                  {STAGE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <button
+                  onClick={handleAddStatusMapping}
+                  type="button"
+                  className="py-2 px-4 bg-[#8a2d46] hover:bg-[#80253e] text-white rounded-md text-xs font-bold border border-[#8a2d46] flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {t.linkStatus}
+                </button>
+              </div>
             </div>
-
-            <div className="space-y-1.5 font-semibold">
-              <label className="text-slate-500 text-[11px] block">Mapear Para Kanban</label>
-              <select
-                value={newKanbanStage}
-                onChange={(e) => setNewKanbanStage(e.target.value as KanbanStage)}
-                className="p-2 text-xs font-normal rounded-md border"
-              >
-                {STAGE_OPTIONS.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              onClick={handleAddStatusMapping}
-              type="button"
-              className="py-2 px-4 bg-[#8a2d46] hover:bg-[#80253e] text-white rounded-md text-xs font-bold transition-all border border-[#8a2d46]"
-            >
-              Vincular
-            </button>
           </div>
         </div>
-      </div>
 
-      {/* FINAL SAVE ACTION BUTTONS BUTTON */}
-      <div className="p-4 bg-slate-50 rounded-xl border border-dashed flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <HelpCircle className="w-5 h-5 text-indigo-500" />
-          <span>Configurações persistidas nativamente em seu navegador local (LocalStorage).</span>
-        </div>
-        <button
-          onClick={handleSave}
-          className="py-2 px-6 bg-[#8a2d46] hover:bg-[#80253e] text-white font-bold text-xs rounded-md shadow-xs active:scale-[0.98] transition-all"
+        {/* ── SECTION 6: LANGUAGE ───────────────────────────────────── */}
+        <div
+          id="language"
+          ref={el => { sectionRefs.current['language'] = el; }}
+          className="bg-white rounded-xl border border-slate-200 p-6 space-y-4 shadow-xs scroll-mt-20"
         >
-          Salvar Todas as Configurações
-        </button>
-      </div>
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2 border-b pb-2">
+            <Globe className="w-5 h-5 text-indigo-600" /> {t.section6Title}
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed">{t.section6Desc}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {([
+              { code: 'pt-BR' as const, label: t.langPtBr, flag: '🇧🇷' },
+              { code: 'en-US' as const, label: t.langEnUs, flag: '🇺🇸' },
+              { code: 'es-ES' as const, label: t.langEsEs, flag: '🇪🇸' },
+            ]).map(({ code, label, flag }) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setLocalConfig(prev => ({ ...prev, language: code }))}
+                className={`p-4 rounded-xl border text-left flex items-center gap-3 transition-all outline-hidden ${
+                  localConfig.language === code
+                    ? 'border-[#8a2d46] ring-2 ring-[#8a2d46]/30 bg-rose-50/50'
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <span className="text-2xl">{flag}</span>
+                <div>
+                  <span className="font-bold text-sm block text-slate-800">{label}</span>
+                  <span className="text-[11px] text-slate-400 font-mono">{code}</span>
+                </div>
+                {localConfig.language === code && (
+                  <CheckCircle className="w-4 h-4 text-[#8a2d46] ml-auto flex-shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
 
+        {/* ── FOOTER SAVE ───────────────────────────────────────────── */}
+        <div className="p-4 bg-slate-50 rounded-xl border border-dashed flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <HelpCircle className="w-5 h-5 text-indigo-500" />
+            <span>{t.settingsStorageNote}</span>
+          </div>
+          <button
+            onClick={handleSave}
+            className="py-2 px-6 bg-[#8a2d46] hover:bg-[#80253e] text-white font-bold text-xs rounded-md shadow-xs active:scale-[0.98] transition-all"
+          >
+            {t.saveAllSettings}
+          </button>
+        </div>
+
+      </div>
     </div>
   );
 }

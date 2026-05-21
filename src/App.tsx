@@ -20,6 +20,7 @@ import {
 import { FlightLevel, Issue, RedmineConfig, FilterState, KanbanStage } from './types';
 import { loadConfig, saveConfig, fetchRedmineIssues } from './api/redmine';
 import { getMockIssues } from './mockData';
+import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 
 // Component Imports
 import Sidebar from './components/Sidebar';
@@ -32,16 +33,20 @@ const DependencyMap = lazy(() => import('./components/DependencyMap'));
 const MetricsDashboard = lazy(() => import('./components/MetricsDashboard'));
 const Settings = lazy(() => import('./components/Settings'));
 
-const ViewLoader = () => (
-  <div className="w-full py-20 flex flex-col items-center justify-center space-y-3">
-    <RefreshCw className="w-8 h-8 animate-spin text-[#8a2d46]" />
-    <span className="text-xs font-bold text-[#8a2d46] animate-pulse">Carregando módulo de visualização...</span>
-  </div>
-);
+const ViewLoader = () => {
+  const { t } = useLanguage();
+  return (
+    <div className="w-full py-20 flex flex-col items-center justify-center space-y-3">
+      <RefreshCw className="w-8 h-8 animate-spin text-[#8a2d46]" />
+      <span className="text-xs font-bold text-[#8a2d46] animate-pulse">{t.loadingModule}</span>
+    </div>
+  );
+};
 
 const STAGE_OPTIONS: KanbanStage[] = ['Backlog', 'To Do', 'In Progress', 'Done'];
 
-export default function App() {
+function AppInner({ onExternalConfigChange }: { onExternalConfigChange?: (c: RedmineConfig) => void }) {
+  const { t } = useLanguage();
   // --- STATE SYSTEM ---
   const [config, setConfig] = useState<RedmineConfig>(() => loadConfig());
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -91,14 +96,14 @@ export default function App() {
       if (!currentConfig.useDemoWorkspace) {
         setStatusMessage({
           type: 'success',
-          text: `Sincronizado! Carregadas ${data.length} demandas diretamente do servidor Redmine.`
+          text: `${t.syncSuccess} ${data.length} demandas diretamente do servidor Redmine.`
         });
       }
     } catch (err: any) {
       console.error(err);
       setStatusMessage({
         type: 'error',
-        text: err.message || 'Erro ao sincronizar. Ativando Modo Simulador Offline para evitar travamento.'
+        text: err.message || t.syncError
       });
       // Silent fallback so user can still test the interface
       setIssues(getMockIssues());
@@ -115,6 +120,7 @@ export default function App() {
   const handleSaveConfig = (newConfig: RedmineConfig) => {
     saveConfig(newConfig);
     setConfig(newConfig);
+    onExternalConfigChange?.(newConfig);
   };
 
   // --- SIMULATION MUTATORS (INTERACTIVE KANBAN MOVEMENT) ---
@@ -125,7 +131,7 @@ export default function App() {
   // Add issue dynamically inside simulation state
   const handleCreateIssue = () => {
     if (!formData.subject.trim()) {
-      alert('Por favor, digite o título da demanda.');
+      alert(t.fillTitle);
       return;
     }
 
@@ -158,7 +164,7 @@ export default function App() {
     // Toast Alert feedback
     setStatusMessage({
       type: 'success',
-      text: `Excelente! ${newIssueLevel} adicionada com código de voo: ${randomId}`
+      text: `${newIssueLevel} ${t.issueCreated} ${randomId}`
     });
 
     // Reset Form
@@ -248,16 +254,16 @@ export default function App() {
             </button>
             <div className="text-left">
               <h2 className="font-extrabold text-xl tracking-tight text-slate-900 font-sans">
-                {currentTab === 'overview' && 'Overview Geral de Fluxo'}
-                {currentTab === 'l3' && 'Kanban Estratégico (L3)'}
-                {currentTab === 'l2' && 'Kanban tático de Coordenação (L2)'}
-                {currentTab === 'l1' && 'Kanban Operacional (L1)'}
-                {currentTab === 'dependencies' && 'Mapa de Conexões'}
-                {currentTab === 'metrics' && 'Performance & CFD'}
-                {currentTab === 'settings' && 'Preferências do RedLevels'}
+                {currentTab === 'overview' && t.headerOverview}
+                {currentTab === 'l3' && t.headerL3}
+                {currentTab === 'l2' && t.headerL2}
+                {currentTab === 'l1' && t.headerL1}
+                {currentTab === 'dependencies' && t.headerDependencies}
+                {currentTab === 'metrics' && t.headerMetrics}
+                {currentTab === 'settings' && t.headerSettings}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Redmine Flight Levels • Klaus Leopold Value Stream Alignment
+                {t.headerSubtitle}
               </p>
             </div>
           </div>
@@ -270,7 +276,7 @@ export default function App() {
               onClick={() => loadData(config)}
               disabled={isRefreshing}
               className={`p-2 rounded-full hover:bg-slate-100 text-slate-500 disabled:opacity-50 transition-colors flex items-center justify-center`}
-              title="Sincronizar dados agora"
+              title={t.syncData}
             >
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin text-pink-600' : ''}`} />
             </button>
@@ -283,10 +289,10 @@ export default function App() {
                   ? 'bg-pink-50 border-pink-200 text-pink-700' 
                   : 'bg-white border-slate-200 hover:border-slate-350 text-slate-700'
               }`}
-              title="Filtros do Kanban"
+              title={t.quickFilters}
             >
               <FilterIcon className="w-4 h-4 text-pink-600" />
-              <span>Filtros Rápidos</span>
+              <span>{t.quickFilters}</span>
               {filtersOpen && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-pink-600 animate-ping" />
               )}
@@ -295,7 +301,7 @@ export default function App() {
             {/* Live status badge */}
             <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-slate-200/90">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold text-slate-500">{config.isConnected ? 'Redmine Conectado' : 'Conexão Offline (Cache)'}</span>
+              <span className="text-xs font-bold text-slate-500">{config.isConnected ? t.redmineConnectedBadge : t.connectionOfflineBadge}</span>
             </div>
           </div>
         </header>
@@ -310,7 +316,7 @@ export default function App() {
               <span className="font-semibold">{statusMessage.text}</span>
             </div>
             <button onClick={() => setStatusMessage(null)} className="font-bold text-slate-400 hover:text-slate-600 px-1 text-[11px]">
-              Ocultar
+              {t.hideNotification}
             </button>
           </div>
         )}
@@ -392,7 +398,7 @@ export default function App() {
             <div className="absolute inset-0 bg-white/40 flex items-center justify-center backdrop-blur-xs">
               <div className="p-5 bg-white border border-[#8a2d46]/20 text-[#8a2d46] rounded-xl shadow-xl flex items-center gap-3">
                 <RefreshCw className="w-5 h-5 animate-spin text-pink-500" />
-                <span className="font-bold text-xs">Aguardando Sincronização Redmine...</span>
+                <span className="font-bold text-xs">{t.waitingSync}</span>
               </div>
             </div>
           )}
@@ -433,7 +439,7 @@ export default function App() {
                 onClick={() => setSelectedIssue(null)}
                 className="p-1 px-3 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded text-xs font-bold"
               >
-                Voltar
+                {t.backButton}
               </button>
             </div>
 
@@ -447,7 +453,7 @@ export default function App() {
               {/* Status & Attributes Row */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 rounded-xl border border-dashed bg-slate-50/50 text-xs">
                 <div>
-                  <span className="text-slate-400 block font-medium mb-1">Status do Voo</span>
+                  <span className="text-slate-400 block font-medium mb-1">{t.flightStatus}</span>
                   <select
                     value={selectedIssue.status}
                     onChange={(e) => {
@@ -468,57 +474,57 @@ export default function App() {
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block font-medium mb-1">Dono Principal</span>
-                  <span className="font-bold text-slate-700 block mt-1.5">{selectedIssue.assignee || 'Unassigned'}</span>
+                  <span className="text-slate-400 block font-medium mb-1">{t.mainOwner}</span>
+                  <span className="font-bold text-slate-700 block mt-1.5">{selectedIssue.assignee || t.unassigned}</span>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block font-medium mb-1">Impacto / Horas</span>
-                  <span className="font-bold text-slate-700 block mt-1.5">{selectedIssue.points ? `${selectedIssue.points} pts` : 'Não Configurado'}</span>
+                  <span className="text-slate-400 block font-medium mb-1">{t.impactHours}</span>
+                  <span className="font-bold text-slate-700 block mt-1.5">{selectedIssue.points ? `${selectedIssue.points} pts` : t.notConfigured}</span>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block font-medium mb-1">Squad Responsável</span>
+                  <span className="text-slate-400 block font-medium mb-1">{t.squadOwner}</span>
                   <span className="font-semibold bg-pink-100 text-pink-700 px-2 py-0.5 rounded block text-center mt-1 w-max">
-                    {selectedIssue.team || 'Todas'}
+                    {selectedIssue.team || t.allTeams}
                   </span>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block font-medium mb-1">Nível de Voo</span>
+                  <span className="text-slate-400 block font-medium mb-1">{t.flightLevel}</span>
                   <span className="font-semibold block mt-1 px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-205 rounded w-max text-[11px]">
                     Flight Level {selectedIssue.level}
                   </span>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block font-medium mb-1">Ativo Há (WIP Age)</span>
+                  <span className="text-slate-400 block font-medium mb-1">{t.activeFor}</span>
                   <span className="font-extrabold text-slate-800 mt-1 block font-mono">
-                    {selectedIssue.age} dias no ar
+                    {selectedIssue.age} {t.daysActive}
                   </span>
                 </div>
               </div>
 
               {/* Description */}
               <div className="space-y-2 text-xs">
-                <span className="font-bold text-slate-400 uppercase tracking-widest block">Detalhes da Demanda</span>
+                <span className="font-bold text-slate-400 uppercase tracking-widest block">{t.issueDetails}</span>
                 <p className="text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-lg border">
-                  {selectedIssue.description || 'Sem descrição cadastrada neste cartão do Redmine.'}
+                  {selectedIssue.description || t.noDescription}
                 </p>
               </div>
 
               {/* Linking parent strategically */}
               <div className="space-y-2 text-xs pt-1">
-                <span className="font-bold text-slate-400 uppercase tracking-widest block">Trilhas de Parentesco</span>
+                <span className="font-bold text-slate-400 uppercase tracking-widest block">{t.parentageTitle}</span>
                 <div className="p-3 border rounded-lg bg-indigo-50/20 text-indigo-950 space-y-1">
-                  <p>Código Pai: <b className="font-bold text-indigo-700">{selectedIssue.parentId || 'Sem nível superior vinculado'}</b></p>
+                  <p>{t.parentCode}: <b className="font-bold text-indigo-700">{selectedIssue.parentId || t.noParentLinked}</b></p>
                   <p className="text-slate-400 text-[11px]">No modelo Flight Levels, cada L2 pertence a L3 anual correspondente. De igual modo, itens operacionais L1 nascem para realizar fatias de L2.</p>
                 </div>
               </div>
 
               {/* Blocked state edit button */}
               <div className="space-y-3 pt-2">
-                <span className="font-bold text-slate-400 uppercase tracking-widest block">Gargalos e Impedimentos</span>
+                <span className="font-bold text-slate-400 uppercase tracking-widest block">{t.blockersTitle}</span>
                 
                 <div className="p-4 rounded-xl border border-red-200 bg-red-50/30 space-y-3">
                   <div className="flex items-center gap-2">
@@ -536,12 +542,12 @@ export default function App() {
                       }}
                       className="w-4.5 h-4.5 text-red-600 focus:ring-red-500 rounded border-slate-300"
                     />
-                    <label className="text-xs font-bold text-red-700">Esta demanda está sob bloqueio/gargalo externo?</label>
+                    <label className="text-xs font-bold text-red-700">{t.isBlocked}</label>
                   </div>
 
                   {selectedIssue.blocked && (
                     <div className="space-y-1.5">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Especificar Causa do Impedimento</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">{t.specifyBlockReason}</span>
                       <textarea
                         value={selectedIssue.blockedReason || ''}
                         onChange={(e) => {
@@ -551,7 +557,7 @@ export default function App() {
                         }}
                         className="w-full p-2 border border-red-300 rounded text-xs bg-white text-slate-800"
                         rows={3}
-                        placeholder="Ex: Aguardando liberação do comitê corporativo de conformidade técnica..."
+                        placeholder={t.placeholderBlockReason}
                       />
                     </div>
                   )}
@@ -565,7 +571,7 @@ export default function App() {
                 onClick={() => setSelectedIssue(null)}
                 className="py-2 px-6 rounded-lg bg-[#8a2d46] border border-[#8a2d46] text-white text-xs font-bold hover:bg-[#80253e]"
               >
-                Confirmar e Voltar
+                {t.confirmAndBack}
               </button>
             </div>
           </div>
@@ -580,44 +586,44 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <Plus className="w-5 h-5 text-pink-600 animate-pulse" />
                 <h3 className="font-extrabold text-base text-slate-800">
-                  Adicionar Item de Voo: Flight Level {newIssueLevel}
+                  {t.newIssueTitle} {newIssueLevel}
                 </h3>
               </div>
               <button 
                 onClick={() => setIsNewIssueModalOpen(false)}
                 className="p-1 text-slate-400 hover:text-slate-600"
               >
-                Ocultar
+                {t.hideModal}
               </button>
             </div>
 
             {/* Form */}
             <div className="space-y-3.5 text-xs font-semibold">
               <div className="space-y-1">
-                <label className="text-slate-500 block">Título do Item / Demanda</label>
+                <label className="text-slate-500 block">{t.labelSubject}</label>
                 <input
                   type="text"
                   value={formData.subject}
                   onChange={(e) => setFormData(prev => ({ ...prev, subject: e.target.value }))}
-                  placeholder="Ex: Migração Estrutural de Logs AWS"
+                  placeholder={t.placeholderSubject}
                   className="w-full p-2.5 font-normal border rounded-lg text-sm"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-slate-500 block">Descrição Detalhada de Contexto</label>
+                <label className="text-slate-500 block">{t.labelDescription}</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                   rows={3}
                   className="w-full p-2.5 font-normal border rounded-lg"
-                  placeholder="Descreva de forma macro a meta e o que se espera de entrega..."
+                  placeholder={t.placeholderDescription}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-slate-500 block">Dono Atribuído</label>
+                  <label className="text-slate-500 block">{t.labelAssignee}</label>
                   <input
                     type="text"
                     value={formData.assignee}
@@ -627,7 +633,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-slate-500 block">Esforço Estimado ({newIssueLevel === FlightLevel.L1 ? 'Horas' : 'Esforço'})</label>
+                  <label className="text-slate-500 block">{newIssueLevel === FlightLevel.L1 ? t.labelEffortHours : t.labelEffort}</label>
                   <input
                     type="number"
                     value={formData.points}
@@ -639,7 +645,7 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-slate-500 block">Time Executor / Squad</label>
+                  <label className="text-slate-500 block">{t.labelTeamSquad}</label>
                   <select
                     value={formData.team}
                     onChange={(e) => setFormData(prev => ({ ...prev, team: e.target.value }))}
@@ -655,7 +661,7 @@ export default function App() {
 
                 {newIssueLevel !== FlightLevel.L3 && (
                   <div className="space-y-1">
-                    <label className="text-purple-800 font-bold block">Código do Item Pai ({newIssueLevel === FlightLevel.L2 ? 'L3' : 'L2'})</label>
+                    <label className="text-purple-800 font-bold block">{t.labelParentCode} ({newIssueLevel === FlightLevel.L2 ? 'L3' : 'L2'})</label>
                     <input
                       type="text"
                       value={formData.parentId}
@@ -676,14 +682,14 @@ export default function App() {
                     onChange={(e) => setFormData(prev => ({ ...prev, blocked: e.target.checked }))}
                     className="w-4.5 h-4.5 rounded text-red-650"
                   />
-                  <label className="text-red-700 font-bold">Nascer bloqueado? (Identificar gargalo preliminar)</label>
+                  <label className="text-red-700 font-bold">{t.createIssueBorn}</label>
                 </div>
                 {formData.blocked && (
                   <input
                     type="text"
                     value={formData.blockedReason}
                     onChange={(e) => setFormData(prev => ({ ...prev, blockedReason: e.target.value }))}
-                    placeholder="Especifique a razão (e.g. Falta aprovação regulatória)"
+                    placeholder={t.placeholderBlockReasonCreate}
                     className="w-full p-2 font-normal border border-red-300 rounded bg-white text-xs"
                   />
                 )}
@@ -696,13 +702,13 @@ export default function App() {
                 onClick={() => setIsNewIssueModalOpen(false)}
                 className="py-2 px-4 rounded border font-bold text-slate-500 hover:bg-slate-50 text-xs"
               >
-                Voltar
+                {t.cancelButton}
               </button>
               <button
                 onClick={handleCreateIssue}
                 className="py-2 px-6 bg-[#8a2d46] hover:bg-[#80253e] text-white font-bold rounded text-xs shadow"
               >
-                Criar Demanda de Voo
+                {t.createIssueButton}
               </button>
             </div>
           </div>
@@ -711,4 +717,23 @@ export default function App() {
 
     </div>
   );
+}
+
+export default function App() {
+  const [config, setConfigForLang] = React.useState(() => loadConfig());
+
+  // Keep language in sync when user saves settings
+  const handleLangConfigChange = (newConfig: RedmineConfig) => {
+    setConfigForLang(newConfig);
+  };
+
+  return (
+    <LanguageProvider language={config.language ?? 'pt-BR'}>
+      <AppInnerWithLang onConfigChange={handleLangConfigChange} />
+    </LanguageProvider>
+  );
+}
+
+function AppInnerWithLang({ onConfigChange }: { onConfigChange: (c: RedmineConfig) => void }) {
+  return <AppInner onExternalConfigChange={onConfigChange} />;
 }

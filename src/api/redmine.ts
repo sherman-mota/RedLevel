@@ -31,6 +31,7 @@ export const DEFAULT_CONFIG: RedmineConfig = {
   isConnected: false,
   useDemoWorkspace: true,
   activeTheme: 'modern',
+  language: 'pt-BR',
   trackers: {
     l3: ['Strategic Initiative', 'Portfolio Goal'],
     l2: ['Value Stream', 'Feature Epic', 'Coordination Issue'],
