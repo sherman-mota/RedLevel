@@ -56,10 +56,9 @@ export default function Overview({
       if (filters.project && issue.project !== filters.project) {
         return false;
       }
-      // Filter by Team/Area
+      // Filter by Team/Area — team comes directly from issue.team (assigned_to)
       if (filters.team) {
-        // Match either in the 'team' property or 'team' custom field mapper
-        const issueTeamVal = issue.team || issue.customFields[config.fieldsMap.team] || '';
+        const issueTeamVal = issue.team || '';
         if (issueTeamVal.toLowerCase() !== filters.team.toLowerCase()) {
           return false;
         }
@@ -68,9 +67,9 @@ export default function Overview({
       if (filters.blockedOnly && !issue.blocked) {
         return false;
       }
-      // Filter by Grouped Tactical Field
+      // Filter by Grouped Tactical Field (l2 groupingField)
       if (filters.selectedGroupFieldVal) {
-        const groupVal = issue.customFields[config.fieldsMap.groupingField] || '';
+        const groupVal = issue.customFields[config.fieldsMap.l2.groupingField] || '';
         if (!groupVal.toLowerCase().includes(filters.selectedGroupFieldVal.toLowerCase())) {
           return false;
         }

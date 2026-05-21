@@ -25,6 +25,18 @@ function buildRedmineHeaders(token: string): HeadersInit {
 
 const CONFIG_KEY = 'redlevels_redmine_config';
 
+const DEMO_TRACKERS = [
+  'Strategic Initiative',
+  'Portfolio Goal',
+  'Value Stream',
+  'Feature Epic',
+  'Coordination Issue',
+  'Task',
+  'Bug',
+  'Support Request',
+  'Sub-task'
+];
+
 export const DEFAULT_CONFIG: RedmineConfig = {
   serverUrl: '',
   token: '',
@@ -37,6 +49,10 @@ export const DEFAULT_CONFIG: RedmineConfig = {
     l2: ['Value Stream', 'Feature Epic', 'Coordination Issue'],
     l1: ['Task', 'Bug', 'Support Request', 'Sub-task']
   },
+  syncedTrackers: DEMO_TRACKERS,
+  l3Mode: 'tracker',
+  l3CustomField: '',
+  l3CustomFieldValue: '',
   stagesMap: {
     'Nova': 'Backlog',
     'Em Discussão': 'To Do',
@@ -48,16 +64,23 @@ export const DEFAULT_CONFIG: RedmineConfig = {
     'Fechada': 'Done'
   },
   fieldsMap: {
-    blockedFlag: 'blocked_custom_field',
-    blockedReason: 'blocked_reason_custom_field',
-    team: 'team_custom_field',
-    leadTimeStart: 'Em Desenvolvimento',
-    groupingField: 'area_coordenacao'
-  }
+    l3: { blockedFlag: '', blockedReason: '', groupingField: '' },
+    l2: { blockedFlag: '', blockedReason: '', groupingField: 'area_coordenacao' },
+    l1: { blockedFlag: 'blocked_custom_field', blockedReason: 'blocked_reason_custom_field', groupingField: '' },
+  },
+  filterFields: {
+    l3: [],
+    l2: [],
+    l1: [],
+  },
 };
 
 export function saveConfig(config: RedmineConfig): void {
   localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+}
+
+export function clearDemoData(): void {
+  localStorage.removeItem(CONFIG_KEY);
 }
 
 export function loadConfig(): RedmineConfig {
@@ -65,7 +88,54 @@ export function loadConfig(): RedmineConfig {
   if (!data) return DEFAULT_CONFIG;
   try {
     const parsed = JSON.parse(data);
-    return { ...DEFAULT_CONFIG, ...parsed };
+
+    // Deep-merge trackers
+    const trackers = {
+      l3: Array.isArray(parsed.trackers?.l3) ? parsed.trackers.l3 : DEFAULT_CONFIG.trackers.l3,
+      l2: Array.isArray(parsed.trackers?.l2) ? parsed.trackers.l2 : DEFAULT_CONFIG.trackers.l2,
+      l1: Array.isArray(parsed.trackers?.l1) ? parsed.trackers.l1 : DEFAULT_CONFIG.trackers.l1,
+    };
+
+    // Migrate old flat fieldsMap -> new per-level structure
+    const oldFlat = parsed.fieldsMap || {};
+    const isOldFormat = oldFlat.blockedFlag !== undefined && !oldFlat.l1;
+    const fieldsMap = {
+      l3: {
+        ...DEFAULT_CONFIG.fieldsMap.l3,
+        ...(parsed.fieldsMap?.l3 || (isOldFormat ? {} : {})),
+      },
+      l2: {
+        ...DEFAULT_CONFIG.fieldsMap.l2,
+        ...(parsed.fieldsMap?.l2 || {}),
+        // Migrate old groupingField to l2
+        ...(isOldFormat && oldFlat.groupingField ? { groupingField: oldFlat.groupingField } : {}),
+      },
+      l1: {
+        ...DEFAULT_CONFIG.fieldsMap.l1,
+        ...(parsed.fieldsMap?.l1 || {}),
+        // Migrate old blocked fields to l1
+        ...(isOldFormat && oldFlat.blockedFlag   ? { blockedFlag: oldFlat.blockedFlag }     : {}),
+        ...(isOldFormat && oldFlat.blockedReason ? { blockedReason: oldFlat.blockedReason } : {}),
+      },
+    };
+
+    const filterFields = {
+      l3: Array.isArray(parsed.filterFields?.l3) ? parsed.filterFields.l3 : [],
+      l2: Array.isArray(parsed.filterFields?.l2) ? parsed.filterFields.l2 : [],
+      l1: Array.isArray(parsed.filterFields?.l1) ? parsed.filterFields.l1 : [],
+    };
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      trackers,
+      fieldsMap,
+      filterFields,
+      syncedTrackers: Array.isArray(parsed.syncedTrackers) ? parsed.syncedTrackers : DEFAULT_CONFIG.syncedTrackers,
+      l3Mode: parsed.l3Mode || 'tracker',
+      l3CustomField: parsed.l3CustomField || '',
+      l3CustomFieldValue: parsed.l3CustomFieldValue || '',
+    };
   } catch {
     return DEFAULT_CONFIG;
   }
@@ -128,19 +198,14 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
     // 1. Obter a lista completa de trackers cadastrados com seus IDs
     const trackersList = await fetchRedmineTrackersList(config);
     
-    const configTrackers = (config.trackers || {}) as Partial<RedmineConfig['trackers']>;
-    const l3 = Array.isArray(configTrackers.l3) ? configTrackers.l3 : [];
-    const l2 = Array.isArray(configTrackers.l2) ? configTrackers.l2 : [];
-    const l1 = Array.isArray(configTrackers.l1) ? configTrackers.l1 : [];
+    const configSyncedTrackers = Array.isArray(config.syncedTrackers) ? config.syncedTrackers : [];
     
-    const allMappedNames = [...l3, ...l2, ...l1];
-    
-    // Obter os IDs numéricos correspondentes aos trackers mapeados pelo usuário
+    // Obter os IDs numéricos correspondentes aos trackers sincronizados pelo usuário
     const mappedTrackerIds = trackersList
-      .filter(t => allMappedNames.includes(t.name))
+      .filter(t => configSyncedTrackers.includes(t.name))
       .map(t => t.id);
 
-    // Se o usuário não mapeou nenhum tracker, retorna vazio imediatamente sem fazer requisição à toa
+    // Se o usuário não selecionou nenhum tracker, retorna vazio imediatamente sem fazer requisição à toa
     if (mappedTrackerIds.length === 0) {
       return [];
     }
@@ -192,7 +257,7 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
     // Mantemos o filtro em memória como camada dupla de segurança (double-guard)
     const mappedIssues = allIssues.filter((issue: any) => {
       const trackerName = issue.tracker?.name || '';
-      return l3.includes(trackerName) || l2.includes(trackerName) || l1.includes(trackerName);
+      return configSyncedTrackers.includes(trackerName);
     });
 
     // Mapear os cartões filtrados para o schema do FlightLevels do app
@@ -200,12 +265,30 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
       const trackerName = issue.tracker?.name || '';
       const statusName = issue.status?.name || '';
       
+      // Read custom fields
+      const customFieldMap: Record<string, string> = {};
+      if (issue.custom_fields) {
+        issue.custom_fields.forEach((cf: any) => {
+          customFieldMap[cf.name] = String(cf.value || '');
+          customFieldMap[String(cf.id)] = String(cf.value || '');
+        });
+      }
+
       // Map Flight Level
       let level = FlightLevel.L1;
-      if (config.trackers.l3.includes(trackerName)) {
-        level = FlightLevel.L3;
-      } else if (config.trackers.l2.includes(trackerName)) {
-        level = FlightLevel.L2;
+      if (config.l3Mode === 'customField' && config.l3CustomField) {
+        const customFieldValue = customFieldMap[config.l3CustomField];
+        if (customFieldValue && customFieldValue === config.l3CustomFieldValue) {
+          level = FlightLevel.L3;
+        } else if (config.trackers.l2.includes(trackerName)) {
+          level = FlightLevel.L2;
+        }
+      } else {
+        if (config.trackers.l3.includes(trackerName)) {
+          level = FlightLevel.L3;
+        } else if (config.trackers.l2.includes(trackerName)) {
+          level = FlightLevel.L2;
+        }
       }
 
       // Map Status Stage
@@ -222,15 +305,6 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
         } else if (lowerStatus.includes('aprov') || lowerStatus.includes('prioriz') || lowerStatus.includes('todo')) {
           status = 'To Do';
         }
-      }
-
-      // Read custom fields
-      const customFieldMap: Record<string, string> = {};
-      if (issue.custom_fields) {
-        issue.custom_fields.forEach((cf: any) => {
-          customFieldMap[cf.name] = String(cf.value || '');
-          customFieldMap[String(cf.id)] = String(cf.value || '');
-        });
       }
 
       // Retrieve parent ID from custom fields or native parent key
@@ -250,8 +324,11 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
         }
       }
 
-      // Blocked state parsing
-      let blockedVal = customFieldMap[config.fieldsMap.blockedFlag]?.toLowerCase();
+      // Blocked state parsing — use level-appropriate custom field
+      const levelKey = level === FlightLevel.L3 ? 'l3' : level === FlightLevel.L2 ? 'l2' : 'l1';
+      const levelFields = config.fieldsMap[levelKey];
+
+      let blockedVal = customFieldMap[levelFields.blockedFlag]?.toLowerCase();
       let blocked = false;
       if (blockedVal) {
         blocked = blockedVal === 'sim' || blockedVal === '1' || blockedVal === 'true' || blockedVal === 'yes' || blockedVal === 'bloqueado';
@@ -260,11 +337,11 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
         blocked = true;
       }
 
-      const blockedReason = customFieldMap[config.fieldsMap.blockedReason] || 
+      const blockedReason = customFieldMap[levelFields.blockedReason] ||
         (blocked ? 'Marcação de status impeditivo ou bloqueio manual no Redmine.' : undefined);
 
-      // Team mapping
-      const teamVal = customFieldMap[config.fieldsMap.team] || issue.category?.name || 'Unassigned';
+      // Team: use assigned_to directly (no custom field needed)
+      const teamVal = issue.assigned_to?.name || issue.category?.name || 'Unassigned';
 
       // Calculated age
       const createdDate = new Date(issue.created_on);

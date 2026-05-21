@@ -37,6 +37,13 @@ export interface Dependency {
   type: 'blocked-by' | 'parent-child';
 }
 
+/** Custom field map for a single Flight Level */
+export interface LevelFieldsMap {
+  blockedFlag: string;    // Custom field that flags blockage (e.g. "1" or "true")
+  blockedReason: string;  // Custom field containing block reason text
+  groupingField: string;  // Custom field used to group/swimlane the kanban
+}
+
 export interface RedmineConfig {
   serverUrl: string;
   token: string;
@@ -44,18 +51,47 @@ export interface RedmineConfig {
   useDemoWorkspace: boolean;
   activeTheme: 'classic' | 'modern' | 'contrast';
   language: 'pt-BR' | 'en-US' | 'es-ES';
+
+  /** Which tracker names map to each Flight Level */
   trackers: {
     l3: string[];
     l2: string[];
     l1: string[];
   };
-  stagesMap: Record<string, KanbanStage>; // Redmine status name -> KanbanStage
+
+  /**
+   * Trackers explicitly included in RedLevels sync.
+   * Trackers NOT in this list are ignored during import.
+   */
+  syncedTrackers: string[];
+
+  /**
+   * How L3 (Strategic level) issues are identified.
+   * 'tracker' = by tracker name (default)
+   * 'customField' = by a custom field value
+   */
+  l3Mode: 'tracker' | 'customField';
+  l3CustomField: string;       // Custom field name/id for L3 identification
+  l3CustomFieldValue: string;  // Value of that field that marks an issue as L3
+
+  /** Redmine status name -> KanbanStage mapping */
+  stagesMap: Record<string, KanbanStage>;
+
+  /** Per-level custom field mappings */
   fieldsMap: {
-    blockedFlag: string; // Name or ID of custom field
-    blockedReason: string;
-    team: string; // Custom field defining team/area
-    leadTimeStart: string; // Status or field that triggers lead time
-    groupingField: string; // Custom field to group L2 Kanban by
+    l3: LevelFieldsMap;
+    l2: LevelFieldsMap;
+    l1: LevelFieldsMap;
+  };
+
+  /**
+   * Custom field names/ids that will appear as filter chips
+   * in the Kanban views for each level.
+   */
+  filterFields: {
+    l3: string[];
+    l2: string[];
+    l1: string[];
   };
 }
 

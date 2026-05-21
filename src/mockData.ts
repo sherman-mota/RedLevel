@@ -42,7 +42,11 @@ const getPastDate = (daysAgo: number) => {
   return d.toISOString().split('T')[0];
 };
 
-export const getMockIssues = (): Issue[] => [
+export const getMockIssues = (): Issue[] => {
+  if (typeof window !== 'undefined' && localStorage.getItem('redlevels_clear_demo') === 'true') {
+    return [];
+  }
+  return [
   // --- LEVEL 3: STRATEGIC INITIATIVES ---
   {
     id: 'STR-01',
@@ -609,8 +613,13 @@ export const getMockIssues = (): Issue[] => [
     customFields: {}
   }
 ];
+}
 
-export const getMockDependencies = (): Dependency[] => [
+export const getMockDependencies = (): Dependency[] => {
+  if (typeof window !== 'undefined' && localStorage.getItem('redlevels_clear_demo') === 'true') {
+    return [];
+  }
+  return [
   // Parent-Child: Strategic L3 to Tactial L2
   { id: 'DEP-01', sourceId: 'PRJ-101', targetId: 'STR-01', type: 'parent-child' },
   { id: 'DEP-02', sourceId: 'PRJ-102', targetId: 'STR-01', type: 'parent-child' },
@@ -637,6 +646,7 @@ export const getMockDependencies = (): Dependency[] => [
   { id: 'DEP-BL-02', sourceId: 'TSK-4003', targetId: 'PRJ-103', type: 'blocked-by' }, // Middleware block waits for DevOps Pipeline work (PRJ-103 is CI/CD DevOps)
   { id: 'DEP-BL-03', sourceId: 'PRJ-104', targetId: 'STR-04', type: 'blocked-by' }
 ];
+}
 
 export interface WeeklyDelivery {
   week: string;

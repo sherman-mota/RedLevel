@@ -99,9 +99,9 @@ export default function KanbanBoard({
         return false;
       }
 
-      // Match Team / Area
+      // Match Team / Area — team is on the Issue directly (from assigned_to)
       if (filters.team) {
-        const issueTeamVal = issue.team || issue.customFields[config.fieldsMap.team] || '';
+        const issueTeamVal = issue.team || '';
         if (issueTeamVal.toLowerCase() !== filters.team.toLowerCase()) {
           return false;
         }
@@ -112,9 +112,9 @@ export default function KanbanBoard({
         return false;
       }
 
-      // Match custom grouping values
+      // Match custom grouping values (uses l2 groupingField)
       if (filters.selectedGroupFieldVal) {
-        const groupVal = issue.customFields[config.fieldsMap.groupingField] || '';
+        const groupVal = issue.customFields[config.fieldsMap.l2.groupingField] || '';
         if (!groupVal.toLowerCase().includes(filters.selectedGroupFieldVal.toLowerCase())) {
           return false;
         }
@@ -130,7 +130,7 @@ export default function KanbanBoard({
     issues.forEach(i => {
       if (i.level === level) {
         // Group by user designated grouping field in configs
-        const gFieldVal = i.customFields[config.fieldsMap.groupingField] || i.team || 'Não Categorizado';
+        const gFieldVal = i.customFields[config.fieldsMap.l2.groupingField] || i.team || 'Não Categorizado';
         list.add(gFieldVal);
       }
     });
@@ -309,7 +309,7 @@ export default function KanbanBoard({
               title="Agrupar por campo personalizado 'Área de Atuação'"
             >
               <Group className="w-3.5 h-3.5" />
-              <span>Swimlanes por Área ({config.fieldsMap.groupingField})</span>
+              <span>Swimlanes por Área ({config.fieldsMap.l2.groupingField})</span>
             </button>
           </div>
         )}
@@ -421,13 +421,13 @@ export default function KanbanBoard({
         /* --- LEVEL 2 ONLY: ADVANCED SWIMLANES KANBAN --- */
         <div className="space-y-6">
           <div className="bg-slate-100 p-2 rounded-lg text-xs font-mono text-slate-500 border">
-            💡 <b>Modo Swimlanes:</b> Agrupando todas as raias horizontais pelo campo customizado <b>{config.fieldsMap.groupingField}</b>.
+            💡 <b>Modo Swimlanes:</b> Agrupando todas as raias horizontais pelo campo customizado <b>{config.fieldsMap.l2.groupingField}</b>.
           </div>
 
           <div className="space-y-4">
             {uniqueGroups.map(groupName => {
               const groupIssues = filteredIssues.filter(i => {
-                const cfVal = i.customFields[config.fieldsMap.groupingField] || i.team || 'Não Categorizado';
+                const cfVal = i.customFields[config.fieldsMap.l2.groupingField] || i.team || 'Não Categorizado';
                 return cfVal === groupName;
               });
 

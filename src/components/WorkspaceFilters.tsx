@@ -111,7 +111,7 @@ export default function WorkspaceFilters({
         {/* TEAMS/AREA FILTER (BASED ON MAPPED TEAM FIELD) */}
         <div className="space-y-2">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Equipe / Área ({config.fieldsMap.team || 'Padrão'})
+            Equipe / Área (assigned_to)
           </label>
           <select
             value={filters.team}
@@ -128,7 +128,7 @@ export default function WorkspaceFilters({
         {/* WORK GROUP / GROUP BY TEAM SWANTED FIELD */}
         <div className="space-y-2">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Agrupador L2 ({config.fieldsMap.groupingField})
+            Agrupador L2 ({config.fieldsMap.l2.groupingField || '—'})
           </label>
           <input
             type="text"
