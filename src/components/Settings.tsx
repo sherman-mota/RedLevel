@@ -19,7 +19,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { RedmineConfig, KanbanStage } from '../types';
-import { testConnection, fetchRedmineTrackers, fetchRedmineCustomFields, fetchRedmineStatuses, DEFAULT_CONFIG } from '../api/redmine';
+import { testConnection, fetchRedmineTrackers, fetchRedmineCustomFields, fetchRedmineStatuses, fetchRedmineTrackersWithStatuses, DEFAULT_CONFIG } from '../api/redmine';
 import { useLanguage } from '../i18n/LanguageContext';
 
 interface SettingsProps {
@@ -69,7 +69,7 @@ export default function Settings({ config, onSaveConfig }: SettingsProps) {
         l2: { ...DEFAULT_CONFIG.fieldsMap.l2, ...(config?.fieldsMap?.l2 || {}) },
         l1: { ...DEFAULT_CONFIG.fieldsMap.l1, ...(config?.fieldsMap?.l1 || {}) },
       },
-      stagesMap: { ...DEFAULT_CONFIG.stagesMap, ...(config?.stagesMap || {}) },
+      stagesMap: JSON.parse(JSON.stringify(config?.stagesMap || DEFAULT_CONFIG.stagesMap)),
     };
   });
 
@@ -92,6 +92,10 @@ export default function Settings({ config, onSaveConfig }: SettingsProps) {
   // Custom fields from Redmine API
   const [customFields, setCustomFields] = useState<{ id: string; name: string }[]>([]);
   const [loadingCustomFields, setLoadingCustomFields] = useState(false);
+
+  // Trackers with their statuses from Redmine API
+  const [trackersWithStatuses, setTrackersWithStatuses] = useState<{ name: string; statuses: { id: string; name: string }[] }[]>([]);
+  const [loadingTrackersWithStatuses, setLoadingTrackersWithStatuses] = useState(false);
 
   // Auto-map
   const [detectingStatuses, setDetectingStatuses] = useState(false);
@@ -138,39 +142,60 @@ export default function Settings({ config, onSaveConfig }: SettingsProps) {
     }
   };
 
+  const loadTrackersWithStatuses = async (cfgToUse = localConfig) => {
+    setLoadingTrackersWithStatuses(true);
+    try {
+      const list = await fetchRedmineTrackersWithStatuses(cfgToUse);
+      setTrackersWithStatuses(list);
+    } catch (err) {
+      console.error('Erro ao carregar trackers com status:', err);
+    } finally {
+      setLoadingTrackersWithStatuses(false);
+    }
+  };
+
   const handleAutoMapStatuses = async () => {
     setDetectingStatuses(true);
     setAutoMapFeedback(null);
     try {
-      const serverStatuses = await fetchRedmineStatuses(localConfig);
+      const trackerList = await fetchRedmineTrackersWithStatuses(localConfig);
       let addedCount = 0;
-      const updatedStagesMap = { ...localConfig.stagesMap };
+      const updatedStagesMap = JSON.parse(JSON.stringify(localConfig.stagesMap));
 
-      serverStatuses.forEach((status) => {
-        const name = status.name.trim();
-        const alreadyMapped = Object.keys(updatedStagesMap).some(k => k.toLowerCase() === name.toLowerCase());
-        if (!alreadyMapped) {
-          let assignedStage: KanbanStage = 'To Do';
-          const lowerName = name.toLowerCase();
-          if (status.is_closed) assignedStage = 'Done';
-          else if (status.is_default) assignedStage = 'Backlog';
-          else if (lowerName.includes('resolv') || lowerName.includes('fech') || lowerName.includes('done') || lowerName.includes('conclu') || lowerName.includes('rejeit') || lowerName.includes('entreg')) assignedStage = 'Done';
-          else if (lowerName.includes('desen') || lowerName.includes('prog') || lowerName.includes('andam') || lowerName.includes('doing') || lowerName.includes('test') || lowerName.includes('homolog') || lowerName.includes('valida') || lowerName.includes('review') || lowerName.includes('revis') || lowerName.includes('imped') || lowerName.includes('bloq')) assignedStage = 'In Progress';
-          else if (lowerName.includes('todo') || lowerName.includes('aprov') || lowerName.includes('prior') || lowerName.includes('discuss') || lowerName.includes('analis') || lowerName.includes('planej')) assignedStage = 'To Do';
-          else assignedStage = 'Backlog';
-          updatedStagesMap[name] = assignedStage;
-          addedCount++;
+      trackerList.forEach((tr) => {
+        const trackerName = tr.name;
+        if (!updatedStagesMap[trackerName]) {
+          updatedStagesMap[trackerName] = {};
         }
+        const trackerMap = updatedStagesMap[trackerName];
+        
+        tr.statuses.forEach((status) => {
+          const name = status.name.trim();
+          const alreadyMapped = !!trackerMap[name];
+          if (!alreadyMapped) {
+            let assignedStage: KanbanStage = 'To Do';
+            const lowerName = name.toLowerCase();
+            if ((status as any).is_closed) assignedStage = 'Done';
+            else if ((status as any).is_default) assignedStage = 'Backlog';
+            else if (lowerName.includes('resolv') || lowerName.includes('fech') || lowerName.includes('done') || lowerName.includes('conclu') || lowerName.includes('rejeit') || lowerName.includes('entreg')) assignedStage = 'Done';
+            else if (lowerName.includes('desen') || lowerName.includes('prog') || lowerName.includes('andam') || lowerName.includes('doing') || lowerName.includes('test') || lowerName.includes('homolog') || lowerName.includes('valida') || lowerName.includes('review') || lowerName.includes('revis') || lowerName.includes('imped') || lowerName.includes('bloq')) assignedStage = 'In Progress';
+            else if (lowerName.includes('todo') || lowerName.includes('aprov') || lowerName.includes('prior') || lowerName.includes('discuss') || lowerName.includes('analis') || lowerName.includes('planej')) assignedStage = 'To Do';
+            else assignedStage = 'Backlog';
+            
+            trackerMap[name] = assignedStage;
+            addedCount++;
+          }
+        });
       });
 
       if (addedCount > 0) {
         setLocalConfig(prev => ({ ...prev, stagesMap: updatedStagesMap }));
-        setAutoMapFeedback({ success: true, message: `${t.autoMappedSuccess} ${addedCount} novos status do Redmine.` });
+        setAutoMapFeedback({ success: true, message: `${t.autoMappedSuccess} ${addedCount} novos status do Redmine mapeados por tracker.` });
       } else {
         setAutoMapFeedback({ success: true, message: t.allStatusesMapped });
       }
     } catch (err: any) {
-      setAutoMapFeedback({ success: false, message: err.message || 'Falha ao conectar com o Redmine para listar status.' });
+      setAutoMapFeedback({ success: false, message: err.message || 'Falha ao conectar com o Redmine para listar status por tracker.' });
     } finally {
       setDetectingStatuses(false);
     }

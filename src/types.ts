@@ -74,8 +74,8 @@ export interface RedmineConfig {
   l3CustomField: string;       // Custom field name/id for L3 identification
   l3CustomFieldValue: string;  // Value of that field that marks an issue as L3
 
-  /** Redmine status name -> KanbanStage mapping */
-  stagesMap: Record<string, KanbanStage>;
+  /** Redmine status name -> KanbanStage mapping, grouped by tracker or global */
+  stagesMap: Record<string, Record<string, KanbanStage>>;
 
   /** Per-level custom field mappings */
   fieldsMap: {

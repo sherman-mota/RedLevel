@@ -54,14 +54,83 @@ export const DEFAULT_CONFIG: RedmineConfig = {
   l3CustomField: '',
   l3CustomFieldValue: '',
   stagesMap: {
-    'Nova': 'Backlog',
-    'Em Discussão': 'To Do',
-    'Aprovada': 'To Do',
-    'Em Desenvolvimento': 'In Progress',
-    'Bloqueada': 'In Progress',
-    'Em Teste': 'In Progress',
-    'Resolvida': 'Done',
-    'Fechada': 'Done'
+    '__global__': {
+      'Nova': 'Backlog',
+      'Em Discussão': 'To Do',
+      'Aprovada': 'To Do',
+      'Em Desenvolvimento': 'In Progress',
+      'Bloqueada': 'In Progress',
+      'Em Teste': 'In Progress',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Strategic Initiative': {
+      'Nova': 'Backlog',
+      'Em Discussão': 'To Do',
+      'Aprovada': 'To Do',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Portfolio Goal': {
+      'Nova': 'Backlog',
+      'Em Discussão': 'To Do',
+      'Aprovada': 'To Do',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Value Stream': {
+      'Nova': 'Backlog',
+      'Em Discussão': 'To Do',
+      'Aprovada': 'To Do',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Feature Epic': {
+      'Nova': 'Backlog',
+      'Em Discussão': 'To Do',
+      'Aprovada': 'To Do',
+      'Em Desenvolvimento': 'In Progress',
+      'Bloqueada': 'In Progress',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Coordination Issue': {
+      'Nova': 'Backlog',
+      'Em Discussão': 'To Do',
+      'Aprovada': 'To Do',
+      'Em Desenvolvimento': 'In Progress',
+      'Bloqueada': 'In Progress',
+      'Em Teste': 'In Progress',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Task': {
+      'Nova': 'Backlog',
+      'Em Desenvolvimento': 'In Progress',
+      'Bloqueada': 'In Progress',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Bug': {
+      'Nova': 'Backlog',
+      'Em Desenvolvimento': 'In Progress',
+      'Bloqueada': 'In Progress',
+      'Em Teste': 'In Progress',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Support Request': {
+      'Nova': 'Backlog',
+      'Em Desenvolvimento': 'In Progress',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    },
+    'Sub-task': {
+      'Nova': 'Backlog',
+      'Em Desenvolvimento': 'In Progress',
+      'Resolvida': 'Done',
+      'Fechada': 'Done'
+    }
   },
   fieldsMap: {
     l3: { blockedFlag: '', blockedReason: '', groupingField: '' },
@@ -125,12 +194,59 @@ export function loadConfig(): RedmineConfig {
       l1: Array.isArray(parsed.filterFields?.l1) ? parsed.filterFields.l1 : [],
     };
 
+    // Migrate stagesMap
+    const rawStagesMap = parsed.stagesMap || DEFAULT_CONFIG.stagesMap;
+    const isNested = Object.values(rawStagesMap || {}).some(v => v && typeof v === 'object');
+    let stagesMap: Record<string, Record<string, KanbanStage>> = {};
+    if (isNested) {
+      stagesMap = rawStagesMap as Record<string, Record<string, KanbanStage>>;
+    } else {
+      // Migrate flat stagesMap -> tracker specific stagesMap
+      const globalStages = (rawStagesMap || {}) as Record<string, KanbanStage>;
+      stagesMap['__global__'] = { ...globalStages };
+      
+      const trackersList = [
+        ...DEFAULT_CONFIG.trackers.l3,
+        ...DEFAULT_CONFIG.trackers.l2,
+        ...DEFAULT_CONFIG.trackers.l1,
+        ...(parsed.syncedTrackers || []),
+        ...trackers.l3,
+        ...trackers.l2,
+        ...trackers.l1
+      ];
+      Array.from(new Set(trackersList)).forEach(t => {
+        stagesMap[t] = { ...globalStages };
+      });
+    }
+
+    // Ensure all default/configured trackers exist in stagesMap
+    const allTrackers = Array.from(new Set([
+      ...DEFAULT_CONFIG.trackers.l3,
+      ...DEFAULT_CONFIG.trackers.l2,
+      ...DEFAULT_CONFIG.trackers.l1,
+      ...(parsed.syncedTrackers || []),
+      ...trackers.l3,
+      ...trackers.l2,
+      ...trackers.l1
+    ]));
+    
+    allTrackers.forEach(t => {
+      if (!stagesMap[t]) {
+        stagesMap[t] = { ...(stagesMap['__global__'] || DEFAULT_CONFIG.stagesMap['__global__'] || {}) };
+      }
+    });
+
+    if (!stagesMap['__global__']) {
+      stagesMap['__global__'] = { ...DEFAULT_CONFIG.stagesMap['__global__'] };
+    }
+
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
       trackers,
       fieldsMap,
       filterFields,
+      stagesMap,
       syncedTrackers: Array.isArray(parsed.syncedTrackers) ? parsed.syncedTrackers : DEFAULT_CONFIG.syncedTrackers,
       l3Mode: parsed.l3Mode || 'tracker',
       l3CustomField: parsed.l3CustomField || '',
@@ -293,8 +409,14 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
 
       // Map Status Stage
       let status: KanbanStage = 'Backlog';
-      if (config.stagesMap[statusName]) {
-        status = config.stagesMap[statusName];
+      const trackerStages = (config.stagesMap as any)[trackerName];
+      if (trackerStages && typeof trackerStages === 'object' && trackerStages[statusName]) {
+        status = trackerStages[statusName];
+      } else if (config.stagesMap['__global__'] && config.stagesMap['__global__'][statusName]) {
+        status = config.stagesMap['__global__'][statusName];
+      } else if (config.stagesMap[statusName] && typeof config.stagesMap[statusName] === 'string') {
+        // Legacy fallback
+        status = config.stagesMap[statusName] as any;
       } else {
         // Fallback guess logic
         const lowerStatus = statusName.toLowerCase();
@@ -587,6 +709,120 @@ export async function fetchRedmineStatuses(config: RedmineConfig): Promise<{ id:
     clearTimeout(timeoutId);
     console.error('Erro buscando status do Redmine:', error);
     throw error;
+  }
+}
+
+export async function fetchRedmineTrackersWithStatuses(config: RedmineConfig): Promise<{ name: string; statuses: { id: string; name: string }[] }[]> {
+  if (config.useDemoWorkspace || !config.serverUrl || !config.token) {
+    const demoStatuses = [
+      { id: '1', name: 'Nova' },
+      { id: '2', name: 'Em Discussão' },
+      { id: '3', name: 'Aprovada' },
+      { id: '4', name: 'Em Desenvolvimento' },
+      { id: '5', name: 'Bloqueada' },
+      { id: '6', name: 'Em Teste' },
+      { id: '7', name: 'Aguardando Homologação' },
+      { id: '8', name: 'Resolvida' },
+      { id: '9', name: 'Fechada' },
+      { id: '10', name: 'Rejeitada' }
+    ];
+    
+    return [
+      {
+        name: 'Strategic Initiative',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Discussão', 'Aprovada', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Portfolio Goal',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Discussão', 'Aprovada', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Value Stream',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Discussão', 'Aprovada', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Feature Epic',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Discussão', 'Aprovada', 'Em Desenvolvimento', 'Bloqueada', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Coordination Issue',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Discussão', 'Aprovada', 'Em Desenvolvimento', 'Bloqueada', 'Em Teste', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Task',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Desenvolvimento', 'Bloqueada', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Bug',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Desenvolvimento', 'Bloqueada', 'Em Teste', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Support Request',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Desenvolvimento', 'Resolvida', 'Fechada'].includes(s.name))
+      },
+      {
+        name: 'Sub-task',
+        statuses: demoStatuses.filter(s => ['Nova', 'Em Desenvolvimento', 'Resolvida', 'Fechada'].includes(s.name))
+      }
+    ];
+  }
+
+  const cleanUrl = config.serverUrl.replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  
+  try {
+    const allStatuses = await fetchRedmineStatuses(config);
+    
+    const url = buildRedmineUrl(cleanUrl, '/trackers.json');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: buildRedmineHeaders(config.token),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Erro buscando trackers: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return (data.trackers || []).map((t: any) => {
+      const trackerStatuses = t.statuses 
+        ? t.statuses.map((s: any) => ({ id: String(s.id), name: s.name })) 
+        : allStatuses;
+      return {
+        name: String(t.name),
+        statuses: trackerStatuses.length > 0 ? trackerStatuses : allStatuses
+      };
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('Erro buscando trackers com status, usando fallback:', error);
+    
+    const allStatuses = await fetchRedmineStatuses(config).catch(() => [
+      { id: '1', name: 'Nova' },
+      { id: '2', name: 'Em Discussão' },
+      { id: '3', name: 'Aprovada' },
+      { id: '4', name: 'Em Desenvolvimento' },
+      { id: '5', name: 'Bloqueada' },
+      { id: '6', name: 'Em Teste' },
+      { id: '7', name: 'Aguardando Homologação' },
+      { id: '8', name: 'Resolvida' },
+      { id: '9', name: 'Fechada' },
+      { id: '10', name: 'Rejeitada' }
+    ]);
+    
+    const trackersList = [
+      'Strategic Initiative', 'Portfolio Goal', 'Value Stream', 'Feature Epic', 
+      'Coordination Issue', 'Task', 'Bug', 'Support Request', 'Sub-task'
+    ];
+    
+    return trackersList.map(name => ({
+      name,
+      statuses: allStatuses
+    }));
   }
 }
 

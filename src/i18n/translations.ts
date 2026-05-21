@@ -190,7 +190,63 @@ export interface Translations {
   notConfigured: string;
   allTeams: string;
   noParentLinked: string;
+
+  // Overview KPIs & Levels
+  kpiTotal: string;
+  kpiStrategicTitle: string;
+  kpiStrategicInProgress: string;
+  kpiTacticalTitle: string;
+  kpiTacticalDays: string;
+  kpiOperationalTitle: string;
+
+  // Level L3 Strategic
+  lvl3Title: string;
+  lvl3Subtitle: string;
+  lvl3Description: string;
+  lvl3Iniciatives: string;
+  lvl3Blocked: string;
+  lvl3NoIssues: string;
+  lvl3NoDescription: string;
+  lvl3SyncN2: string;
+  lvl3NoManager: string;
+  lvl3BlockLabel: string;
+
+  // Level L2 Tactical
+  lvl2Title: string;
+  lvl2Subtitle: string;
+  lvl2Description: string;
+  lvl2EpicsProjects: string;
+  lvl2WipAgeAvg: string;
+  lvl2NoIssues: string;
+  lvl2AllTeams: string;
+  lvl2SyncL1: string;
+  lvl2WipAgeLabel: string;
+  lvl2NoOwner: string;
+  lvl2BottleneckLabel: string;
+
+  // Level L1 Operational
+  lvl1Title: string;
+  lvl1Subtitle: string;
+  lvl1Description: string;
+  lvl1HighDensityOn: string;
+  lvl1HighDensityOff: string;
+  lvl1HighDensityTooltip: string;
+  lvl1HighDensityCompaction: string;
+  lvl1HighDensityCorpSummary: string;
+  lvl1HighDensityKlausLeopold: string;
+  lvl1DotMatrixTitle: string;
+  lvl1FilteredActive: string;
+  lvl1NoParent: string;
+  lvl1NoAssignee: string;
+  lvl1NoEstimation: string;
+  lvl1BlockedTag: string;
+  lvl1Backlog: string;
+  lvl1ToDo: string;
+  lvl1InProgress: string;
+  lvl1Blocked: string;
+  lvl1Done: string;
 }
+
 
 const ptBR: Translations = {
   appName: 'RedLevels',
@@ -215,9 +271,9 @@ const ptBR: Translations = {
   demoWorkspace: 'Demonstração',
 
   headerOverview: 'Visão Geral',
-  headerL3: 'Kanban Estratégico (L3)',
-  headerL2: 'Kanban tático de Coordenação (L2)',
-  headerL1: 'Kanban Operacional (L1)',
+  headerL3: 'Kanban Estratégico',
+  headerL2: 'Kanban tático de Coordenação',
+  headerL1: 'Kanban Operacional',
   headerDependencies: 'Mapa de Conexões',
   headerMetrics: 'Performance & CFD',
   headerSettings: 'Preferências do RedLevels',
@@ -365,6 +421,61 @@ const ptBR: Translations = {
   notConfigured: 'Não Configurado',
   allTeams: 'Todas',
   noParentLinked: 'Sem nível superior vinculado',
+
+  // Overview KPIs & Levels
+  kpiTotal: 'Total',
+  kpiStrategicTitle: 'Itens Estratégicos',
+  kpiStrategicInProgress: 'em Progresso',
+  kpiTacticalTitle: 'Itens Táticos (WIP Age Médio)',
+  kpiTacticalDays: 'dias',
+  kpiOperationalTitle: 'Itens Operacionais Ativos',
+
+  // Level L3 Strategic
+  lvl3Title: 'Iniciativas Estratégias',
+  lvl3Subtitle: '(Projetos Estratégicos)',
+  lvl3Description: 'Direciona a estratégia da organização conectando metas até as equipes',
+  lvl3Iniciatives: 'Projetos Estratégicos',
+  lvl3Blocked: 'Bloqueados',
+  lvl3NoIssues: 'Nenhuma iniciativa estratégica corresponde aos filtros atuais.',
+  lvl3NoDescription: 'Sem descrição cadastrada.',
+  lvl3SyncN2: 'Sincronização N2',
+  lvl3NoManager: 'Sem gestor',
+  lvl3BlockLabel: 'Bloqueio:',
+
+  // Level L2 Tactical
+  lvl2Title: 'Demandas Táticas',
+  lvl2Subtitle: '(Demandas)',
+  lvl2Description: 'Coordena a entrega de múltiplos times operacionais orientado pelas iniciativas estratégicas',
+  lvl2EpicsProjects: 'Demandas',
+  lvl2WipAgeAvg: 'WIP Age Médio:',
+  lvl2NoIssues: 'Nenhum item do nível de coordenação corresponde aos filtros.',
+  lvl2AllTeams: 'Todas Equipes',
+  lvl2SyncL1: 'Sincronização L1',
+  lvl2WipAgeLabel: 'WIP Age:',
+  lvl2NoOwner: 'Sem dono',
+  lvl2BottleneckLabel: 'Gargalo:',
+
+  // Level L1 Operational
+  lvl1Title: 'Tarefas Operacionais',
+  lvl1Subtitle: '(Tarefas)',
+  lvl1Description: 'Visualização dos incrementos de software produzidos',
+  lvl1HighDensityOn: 'Resumo de Alta Densidade: LIGADO',
+  lvl1HighDensityOff: 'Mostrar Todos os Cards',
+  lvl1HighDensityTooltip: 'Alternar entre modo compactado e cartões grandes',
+  lvl1HighDensityCompaction: 'Resumo',
+  lvl1HighDensityCorpSummary: 'Resumo Corporativo de Alta Densidade',
+  lvl1HighDensityKlausLeopold: 'Agilistas Klaus Leopold indicam consolidar representações operacionais volumosas para evitar gargalo informacional de microgerenciamento.',
+  lvl1DotMatrixTitle: 'Área operacional consolidada (1 bolinha = 5 demandas ativas)',
+  lvl1FilteredActive: 'Filtrados Operacionais Ativos no RedLevels',
+  lvl1NoParent: 'Sem Vínculo',
+  lvl1NoAssignee: 'Sem Atrib.',
+  lvl1NoEstimation: 'No est.',
+  lvl1BlockedTag: 'Bloqueado!',
+  lvl1Backlog: 'Backlog',
+  lvl1ToDo: 'To Do',
+  lvl1InProgress: 'In Progress',
+  lvl1Blocked: 'Blocked',
+  lvl1Done: 'Done',
 };
 
 const enUS: Translations = {
@@ -540,6 +651,61 @@ const enUS: Translations = {
   notConfigured: 'Not Configured',
   allTeams: 'All',
   noParentLinked: 'No higher level linked',
+
+  // Overview KPIs & Levels
+  kpiTotal: 'Total',
+  kpiStrategicTitle: 'Strategic Items',
+  kpiStrategicInProgress: 'In Progress',
+  kpiTacticalTitle: 'Tactical Items (Average WIP Age)',
+  kpiTacticalDays: 'days',
+  kpiOperationalTitle: 'Active Operational Items',
+
+  // Level L3 Strategic
+  lvl3Title: 'Flight Level 3: Strategic',
+  lvl3Subtitle: '(Portfolio Initiatives)',
+  lvl3Description: 'Steers the corporation by connecting annual goals down to teams',
+  lvl3Iniciatives: 'Initiatives',
+  lvl3Blocked: 'Blocked',
+  lvl3NoIssues: 'No strategic initiatives match the current filters.',
+  lvl3NoDescription: 'No description registered.',
+  lvl3SyncN2: 'L2 Sync',
+  lvl3NoManager: 'No manager',
+  lvl3BlockLabel: 'Blocked:',
+
+  // Level L2 Tactical
+  lvl2Title: 'Flight Level 2: Coordination',
+  lvl2Subtitle: '(Value Flow & Dependencies)',
+  lvl2Description: 'Synchronizes multiple operational teams in the same Value Stream',
+  lvl2EpicsProjects: 'Epics/Projects',
+  lvl2WipAgeAvg: 'Average WIP Age:',
+  lvl2NoIssues: 'No coordination level items match the filters.',
+  lvl2AllTeams: 'All Teams',
+  lvl2SyncL1: 'L1 Sync',
+  lvl2WipAgeLabel: 'WIP Age:',
+  lvl2NoOwner: 'No owner',
+  lvl2BottleneckLabel: 'Bottleneck:',
+
+  // Level L1 Operational
+  lvl1Title: 'Flight Level 1: Operational',
+  lvl1Subtitle: '(Team Kanban Boards)',
+  lvl1Description: 'High-density view for tasks, bugs, and daily sprints',
+  lvl1HighDensityOn: 'High Density Summary: ON',
+  lvl1HighDensityOff: 'Show All Cards',
+  lvl1HighDensityTooltip: 'Toggle between compacted mode and large cards',
+  lvl1HighDensityCompaction: 'AUTOMATIC COMPACTION L1',
+  lvl1HighDensityCorpSummary: 'Corporate High Density Summary',
+  lvl1HighDensityKlausLeopold: 'Klaus Leopold agilists recommend consolidating bulky operational representations to avoid information bottleneck of micromanagement.',
+  lvl1DotMatrixTitle: 'Consolidated operational area (1 dot = 5 active demands)',
+  lvl1FilteredActive: 'Active Operational Filtered in RedLevels',
+  lvl1NoParent: 'No Link',
+  lvl1NoAssignee: 'No Assignee',
+  lvl1NoEstimation: 'No est.',
+  lvl1BlockedTag: 'Blocked!',
+  lvl1Backlog: 'Backlog',
+  lvl1ToDo: 'To Do',
+  lvl1InProgress: 'In Progress',
+  lvl1Blocked: 'Blocked',
+  lvl1Done: 'Done',
 };
 
 const esES: Translations = {
@@ -715,6 +881,61 @@ const esES: Translations = {
   notConfigured: 'No Configurado',
   allTeams: 'Todos',
   noParentLinked: 'Sin nivel superior vinculado',
+
+  // Overview KPIs & Levels
+  kpiTotal: 'Total',
+  kpiStrategicTitle: 'Elementos Estratégicos',
+  kpiStrategicInProgress: 'en Progreso',
+  kpiTacticalTitle: 'Elementos Tácticos (Edad WIP Media)',
+  kpiTacticalDays: 'días',
+  kpiOperationalTitle: 'Elementos Operacionales Activos',
+
+  // Level L3 Strategic
+  lvl3Title: 'Flight Level 3: Estratégico',
+  lvl3Subtitle: '(Iniciativas de Portafolio)',
+  lvl3Description: 'Dirige el rumbo de la corporación conectando metas anuales con los equipos',
+  lvl3Iniciatives: 'Iniciativas',
+  lvl3Blocked: 'Bloqueadas',
+  lvl3NoIssues: 'Ninguna iniciativa estratégica coincide con los filtros actuales.',
+  lvl3NoDescription: 'Sin descripción registrada.',
+  lvl3SyncN2: 'Sincronización N2',
+  lvl3NoManager: 'Sin gestor',
+  lvl3BlockLabel: 'Bloqueo:',
+
+  // Level L2 Tactical
+  lvl2Title: 'Flight Level 2: Coordinación',
+  lvl2Subtitle: '(Flujo de Valor y Dependências)',
+  lvl2Description: 'Sincroniza múltiples equipos operativos en el mismo Value Stream',
+  lvl2EpicsProjects: 'Épicos/Proyectos',
+  lvl2WipAgeAvg: 'Edad WIP Media:',
+  lvl2NoIssues: 'Ningún elemento del nivel de coordinación coincide con los filtros.',
+  lvl2AllTeams: 'Todos los Equipos',
+  lvl2SyncL1: 'Sincronización L1',
+  lvl2WipAgeLabel: 'Edad WIP:',
+  lvl2NoOwner: 'Sin propietario',
+  lvl2BottleneckLabel: 'Cuello de Botella:',
+
+  // Level L1 Operational
+  lvl1Title: 'Flight Level 1: Operacional',
+  lvl1Subtitle: '(Tableros Kanban de Equipos)',
+  lvl1Description: 'Visualización de alta densidad para tareas, errores y sprints diarios',
+  lvl1HighDensityOn: 'Resumen de Alta Densidade: ACTIVADO',
+  lvl1HighDensityOff: 'Mostrar Todas las Tarjetas',
+  lvl1HighDensityTooltip: 'Alternar entre modo compactado y tarjetas grandes',
+  lvl1HighDensityCompaction: 'COMPACTACIÓN AUTOMÁTICA N1',
+  lvl1HighDensityCorpSummary: 'Resumen Corporativo de Alta Densidad',
+  lvl1HighDensityKlausLeopold: 'Los agilistas de Klaus Leopold aconsejan consolidar las representaciones operativas voluminosas para evitar el cuello de botella de información del microgerenciamiento.',
+  lvl1DotMatrixTitle: 'Área operativa consolidada (1 punto = 5 demandas activas)',
+  lvl1FilteredActive: 'Filtrados Operativos Activos en RedLevels',
+  lvl1NoParent: 'Sin Vínculo',
+  lvl1NoAssignee: 'Sin Asig.',
+  lvl1NoEstimation: 'Sin est.',
+  lvl1BlockedTag: '¡Bloqueado!',
+  lvl1Backlog: 'Backlog',
+  lvl1ToDo: 'To Do',
+  lvl1InProgress: 'In Progress',
+  lvl1Blocked: 'Blocked',
+  lvl1Done: 'Done',
 };
 
 export const translations: Record<Language, Translations> = {

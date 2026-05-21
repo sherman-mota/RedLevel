@@ -90,10 +90,12 @@ export default function Sidebar({
               <div className="w-8 h-8 rounded flex items-center justify-center bg-[#8a2d46]">
                 <span className="font-bold text-white text-sm">RL</span>
               </div>
-              <h1 className="text-xl font-bold tracking-tight text-[#8a2d46]">RedLevels</h1>
+              <h1 className="text-xl font-bold tracking-tight text-[#8a2d46]">
+                {t.appName}
+              </h1>
             </div>
             <p className="text-xs mt-0.5 text-slate-500 font-mono">
-              Escaled Agility View for Redmine
+              {t.appSubtitle}
             </p>
           </div>
         ) : (
@@ -146,7 +148,7 @@ export default function Sidebar({
           <Server className="w-4 h-4 flex-shrink-0" />
           {!collapsed && (
             <div className="truncate">
-                        <p className="font-semibold leading-3">
+              <p className="font-semibold leading-3">
                 {config.isConnected ? t.redmineConnected : t.connectionOffline}
               </p>
               <p className="text-[9px] opacity-70 truncate mt-0.5">
