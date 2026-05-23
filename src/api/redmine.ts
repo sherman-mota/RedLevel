@@ -394,7 +394,7 @@ export async function fetchRedmineIssues(config: RedmineConfig): Promise<Issue[]
       let level = FlightLevel.L1;
       if (config.l3Mode === 'customField' && config.l3CustomField) {
         const customFieldValue = customFieldMap[config.l3CustomField];
-        if (customFieldValue && customFieldValue === config.l3CustomFieldValue) {
+        if (customFieldValue && customFieldValue.trim() !== '' && customFieldValue !== '0' && customFieldValue.toLowerCase() !== 'false') {
           level = FlightLevel.L3;
         } else if (config.trackers.l2.includes(trackerName)) {
           level = FlightLevel.L2;
@@ -612,16 +612,16 @@ export async function fetchRedmineTrackersList(config: RedmineConfig): Promise<{
   }
 }
 
-export async function fetchRedmineCustomFields(config: RedmineConfig): Promise<{ id: string; name: string }[]> {
+export async function fetchRedmineCustomFields(config: RedmineConfig): Promise<{ id: string; name: string; possibleValues?: string[] }[]> {
   if (config.useDemoWorkspace || !config.serverUrl || !config.token) {
     return [
-      { id: '1', name: 'Impedimento (Blocked Flag)' },
+      { id: '1', name: 'Impedimento (Blocked Flag)', possibleValues: ['Sim', 'Não'] },
       { id: '2', name: 'Motivo do Impedimento' },
-      { id: '3', name: 'Squad Responsável' },
-      { id: '4', name: 'Área de Coordenação' },
-      { id: '5', name: 'Flight Level' },
-      { id: '6', name: 'Business Value' },
-      { id: '7', name: 'Fila de Origem' }
+      { id: '3', name: 'Squad Responsável', possibleValues: ['Squad A', 'Squad B', 'Squad C', 'Squad D'] },
+      { id: '4', name: 'Área de Coordenação', possibleValues: ['Marketing', 'Vendas', 'Engenharia', 'Diretoria'] },
+      { id: '5', name: 'Flight Level', possibleValues: ['L3', 'L2', 'L1', 'Strategic', 'Coordination', 'Operational'] },
+      { id: '6', name: 'Business Value', possibleValues: ['Alto', 'Médio', 'Baixo'] },
+      { id: '7', name: 'Fila de Origem', possibleValues: ['Suporte', 'Interno', 'Diretoria'] }
     ];
   }
 
@@ -645,21 +645,33 @@ export async function fetchRedmineCustomFields(config: RedmineConfig): Promise<{
     }
 
     const data = await response.json();
-    return (data.custom_fields || []).map((cf: any) => ({
-      id: String(cf.id),
-      name: cf.name
-    }));
+    return (data.custom_fields || []).map((cf: any) => {
+      let possibleValues: string[] | undefined = undefined;
+      if (Array.isArray(cf.possible_values)) {
+        possibleValues = cf.possible_values.map((v: any) => {
+          if (v && typeof v === 'object' && v.value !== undefined) {
+            return String(v.value);
+          }
+          return String(v);
+        });
+      }
+      return {
+        id: String(cf.id),
+        name: cf.name,
+        possibleValues
+      };
+    });
   } catch (error) {
     clearTimeout(timeoutId);
     console.error('Erro buscando campos personalizados do Redmine, usando fallback:', error);
     return [
-      { id: '1', name: 'Impedimento (Blocked Flag)' },
+      { id: '1', name: 'Impedimento (Blocked Flag)', possibleValues: ['Sim', 'Não'] },
       { id: '2', name: 'Motivo do Impedimento' },
-      { id: '3', name: 'Squad Responsável' },
-      { id: '4', name: 'Área de Coordenação' },
-      { id: '5', name: 'Flight Level' },
-      { id: '6', name: 'Business Value' },
-      { id: '7', name: 'Fila de Origem' }
+      { id: '3', name: 'Squad Responsável', possibleValues: ['Squad A', 'Squad B', 'Squad C', 'Squad D'] },
+      { id: '4', name: 'Área de Coordenação', possibleValues: ['Marketing', 'Vendas', 'Engenharia', 'Diretoria'] },
+      { id: '5', name: 'Flight Level', possibleValues: ['L3', 'L2', 'L1', 'Strategic', 'Coordination', 'Operational'] },
+      { id: '6', name: 'Business Value', possibleValues: ['Alto', 'Médio', 'Baixo'] },
+      { id: '7', name: 'Fila de Origem', possibleValues: ['Suporte', 'Interno', 'Diretoria'] }
     ];
   }
 }
