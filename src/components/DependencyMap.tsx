@@ -17,7 +17,8 @@ import {
   X,
   ZoomIn,
   ZoomOut,
-  Maximize2
+  Maximize2,
+  CheckCircle
 } from 'lucide-react';
 import { FlightLevel, Issue, Dependency, RedmineConfig, FilterState } from '../types';
 
@@ -32,9 +33,18 @@ export default function DependencyMap({
   filters: globalFilters,
   config
 }: DependencyMapProps) {
-  // Local active filters to match the top bar in the design prototype
+  // Extract unique projects dynamically from issues
+  const projectOptions = useMemo(() => {
+    const list = new Set<string>();
+    issues.forEach(i => {
+      if (i.project) list.add(i.project);
+    });
+    return ['All Projects', ...Array.from(list)];
+  }, [issues]);
+
+  // Local active filters to match the design prototype
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProject, setSelectedProject] = useState('Global Expansion 2024');
+  const [selectedProject, setSelectedProject] = useState('All Projects');
   const [selectedStatus, setSelectedStatus] = useState<'All' | 'Blocked' | 'Healthy'>('All');
   const [selectedLevel, setSelectedLevel] = useState('All Levels');
 
@@ -49,6 +59,123 @@ export default function DependencyMap({
   const [clickStartPos, setClickStartPos] = useState({ x: 0, y: 0 });
 
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Filter issues based on active local filters
+  const filteredIssues = useMemo(() => {
+    return issues.filter(issue => {
+      // 1. Project filter
+      if (selectedProject !== 'All Projects' && issue.project !== selectedProject) {
+        return false;
+      }
+      // 2. Status filter
+      if (selectedStatus === 'Blocked' && !issue.blocked) return false;
+      if (selectedStatus === 'Healthy' && issue.blocked) return false;
+      
+      // 3. Search query
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchesSubject = issue.subject.toLowerCase().includes(q);
+        const matchesId = issue.id.toLowerCase().includes(q);
+        const matchesAssignee = issue.assignee?.toLowerCase().includes(q) || false;
+        if (!matchesSubject && !matchesId && !matchesAssignee) return false;
+      }
+      
+      return true;
+    });
+  }, [issues, selectedProject, selectedStatus, searchQuery]);
+
+  // Group filtered issues by flight levels
+  const l3List = useMemo(() => {
+    return filteredIssues.filter(i => i.level === FlightLevel.L3 && (selectedLevel === 'All Levels' || selectedLevel === 'L3 Strategic'));
+  }, [filteredIssues, selectedLevel]);
+
+  const l2List = useMemo(() => {
+    return filteredIssues.filter(i => i.level === FlightLevel.L2 && (selectedLevel === 'All Levels' || selectedLevel === 'L2 Coordination'));
+  }, [filteredIssues, selectedLevel]);
+
+  const l1List = useMemo(() => {
+    return filteredIssues.filter(i => i.level === FlightLevel.L1 && (selectedLevel === 'All Levels' || selectedLevel === 'L1 Operational'));
+  }, [filteredIssues, selectedLevel]);
+
+  // Dynamic SVG Connections state
+  const [connections, setConnections] = useState<{ fromId: string; toId: string; path: string; isBlocked: boolean }[]>([]);
+
+  // Function to calculate SVG paths dynamically relative to canvas parent element
+  const updatePaths = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rectCanvas = canvas.getBoundingClientRect();
+    const newConnections: typeof connections = [];
+
+    const getPoint = (elId: string, side: 'left' | 'right') => {
+      const el = document.getElementById(elId);
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      
+      const x = (side === 'left' ? rect.left : rect.right) - rectCanvas.left;
+      const y = (rect.top + rect.height / 2) - rectCanvas.top;
+      
+      return {
+        x: (x - pan.x) / zoom,
+        y: (y - pan.y) / zoom
+      };
+    };
+
+    // L2 -> L3 connections
+    l2List.forEach(l2 => {
+      if (!l2.parentId) return;
+      const l3 = l3List.find(item => item.id === l2.parentId);
+      if (!l3) return;
+
+      const pFrom = getPoint(`card-${l2.id}`, 'left');
+      const pTo = getPoint(`card-${l3.id}`, 'right');
+
+      if (pFrom && pTo) {
+        const dx = pFrom.x - pTo.x;
+        const cp1x = pTo.x + dx / 2;
+        const cp1y = pTo.y;
+        const cp2x = pTo.x + dx / 2;
+        const cp2y = pFrom.y;
+        const path = `M ${pTo.x} ${pTo.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${pFrom.x} ${pFrom.y}`;
+
+        newConnections.push({
+          fromId: l2.id,
+          toId: l3.id,
+          path,
+          isBlocked: l2.blocked || l3.blocked
+        });
+      }
+    });
+
+    // L1 -> L2 connections
+    l1List.forEach(l1 => {
+      if (!l1.parentId) return;
+      const l2 = l2List.find(item => item.id === l1.parentId);
+      if (!l2) return;
+
+      const pFrom = getPoint(`card-${l1.id}`, 'left');
+      const pTo = getPoint(`card-${l2.id}`, 'right');
+
+      if (pFrom && pTo) {
+        const dx = pFrom.x - pTo.x;
+        const cp1x = pTo.x + dx / 2;
+        const cp1y = pTo.y;
+        const cp2x = pTo.x + dx / 2;
+        const cp2y = pFrom.y;
+        const path = `M ${pTo.x} ${pTo.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${pFrom.x} ${pFrom.y}`;
+
+        newConnections.push({
+          fromId: l1.id,
+          toId: l2.id,
+          path,
+          isBlocked: l1.blocked || l2.blocked
+        });
+      }
+    });
+
+    setConnections(newConnections);
+  };
 
   // Wheel zoom with native listener for passive: false compatibility
   useEffect(() => {
@@ -84,6 +211,17 @@ export default function DependencyMap({
       canvas.removeEventListener('wheel', handleWheelNative);
     };
   }, []);
+
+  // Update dynamic connection paths when data, zoom or pan changes
+  useEffect(() => {
+    updatePaths();
+    window.addEventListener('resize', updatePaths);
+    const timer = setTimeout(updatePaths, 100);
+    return () => {
+      window.removeEventListener('resize', updatePaths);
+      clearTimeout(timer);
+    };
+  }, [l3List, l2List, l1List, zoom, pan]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -172,27 +310,9 @@ export default function DependencyMap({
     setActiveCard(activeCard === cardId ? null : cardId);
   };
 
-  // Hardcode the target path metrics for high fidelity with the mockup prototype
-  const isL3MatchesFilters = useMemo(() => {
-    if (searchQuery && !'Global Market Expansion'.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (selectedLevel !== 'All Levels' && selectedLevel !== 'L3 Strategic') return false;
-    if (selectedStatus === 'Blocked') return false; // L3 is healthy
-    return true;
-  }, [searchQuery, selectedStatus, selectedLevel]);
-
-  const isL2UpperMatchesFilters = useMemo(() => {
-    if (searchQuery && !'Cloud Infra Migration'.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (selectedLevel !== 'All Levels' && selectedLevel !== 'L2 Coordination') return false;
-    if (selectedStatus === 'Blocked') return false; // L2 Upper is healthy
-    return true;
-  }, [searchQuery, selectedStatus, selectedLevel]);
-
-  const isL2LowerMatchesFilters = useMemo(() => {
-    if (searchQuery && !'Data Compliance Hub'.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (selectedLevel !== 'All Levels' && selectedLevel !== 'L2 Coordination') return false;
-    if (selectedStatus === 'Healthy') return false; // L2 Lower is blocked
-    return true;
-  }, [searchQuery, selectedStatus, selectedLevel]);
+  const selectedIssueData = useMemo(() => {
+    return issues.find(i => i.id === activeCard);
+  }, [issues, activeCard]);
 
   return (
     <div className="space-y-6 text-left">
@@ -255,10 +375,9 @@ export default function DependencyMap({
               onChange={(e) => setSelectedProject(e.target.value)}
               className="w-full text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 p-2.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8a2d46]"
             >
-              <option value="Global Expansion 2024">Global Expansion 2024</option>
-              <option value="Infrastructure Migration">Infrastructure Migration</option>
-              <option value="Growth Initiatives">Growth Initiatives</option>
-              <option value="Core Billing Engine">Core Billing Engine</option>
+              {projectOptions.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
             </select>
           </div>
 
@@ -315,25 +434,23 @@ export default function DependencyMap({
           </div>
           <div className="h-4 w-px bg-slate-200 hidden md:block" />
           <div className="flex items-center gap-2">
-            <span className="w-5 h-0.5 bg-slate-350 inline-block" />
+            <span className="w-5 h-0.5 bg-slate-300 inline-block" />
             <span>Direct Connection</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-5 border-t border-dashed border-slate-350 inline-block" />
-            <span>Cross-Team Path</span>
+            <span className="w-5 border-t border-dashed border-red-500 inline-block animate-pulse" />
+            <span>Blocked Flow (Gargalo)</span>
           </div>
         </div>
 
-      </div>
-
-      {/* 3. DIAGRAM CANVAS AREA */}
+      </div>      {/* 3. DIAGRAM CANVAS AREA */}
       <div 
         ref={canvasRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        className={`p-6 bg-[#f8fafc] border border-slate-200 rounded-2xl min-h-[520px] flex flex-col justify-start relative overflow-hidden select-none transition-shadow duration-300 ${
+        className={`p-6 bg-[#f8fafc] border border-slate-200 rounded-2xl min-h-[550px] flex flex-col justify-start relative overflow-hidden select-none transition-shadow duration-300 ${
           isDragging ? 'cursor-grabbing shadow-inner' : 'cursor-grab hover:shadow-sm'
         }`}
       >
@@ -373,6 +490,7 @@ export default function DependencyMap({
 
         {/* Pan/Zoom Transform Content Wrapper */}
         <div 
+          id="transform-wrapper"
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: '0 0',
@@ -380,227 +498,215 @@ export default function DependencyMap({
           }}
           className="w-full h-full flex flex-col justify-center relative pointer-events-auto origin-top-left"
         >
-          {/* Connection system paths container */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_120px_1fr_100px] items-center gap-2 relative z-10">
-            
-            {/* COLUMN L3 */}
-            <div className="space-y-4 flex flex-col justify-center h-full">
-              <div className="px-3 py-1 bg-purple-100/50 rounded-lg text-purple-800 text-[11px] font-bold tracking-wider uppercase flex items-center justify-between border border-purple-200/40">
-                <span>STRATEGIC L3</span>
-                <span className="bg-purple-100 text-purple-900 text-[10px] px-1.5 py-0.2 rounded font-bold">1 ACTIVE</span>
-              </div>
+          {/* SVG Connections Overlay */}
+          <svg 
+            className="absolute inset-0 w-full h-full pointer-events-none z-0"
+            style={{ minWidth: '100%', minHeight: '100%' }}
+          >
+            {connections.map((conn, index) => (
+              <path
+                key={index}
+                d={conn.path}
+                stroke={conn.isBlocked ? '#dc2626' : '#94a3b8'}
+                strokeWidth={conn.isBlocked ? '3' : '2'}
+                strokeDasharray={conn.isBlocked ? '4 4' : 'none'}
+                fill="none"
+                className={conn.isBlocked ? 'animate-pulse' : ''}
+                style={{ transition: 'stroke 0.2s, stroke-width 0.2s' }}
+              />
+            ))}
+          </svg>
 
-              {isL3MatchesFilters ? (
-                <div 
-                  onClick={(e) => handleCardClick('l3', e)}
-                  className={`p-4 bg-white rounded-xl border transition-all cursor-pointer relative shadow-sm hover:translate-y-[-1px] hover:shadow-md ${
-                    activeCard === 'l3' ? 'border-[#8a2d46] ring-2 ring-[#8a2d46]/10' : 'border-slate-200'
+          {/* Connection columns container */}
+          <div className="flex flex-row justify-between gap-16 relative z-10 w-full px-4 py-8">
+            
+            {/* COLUMN L3 - STRATEGIC */}
+            <div className="flex-1 flex flex-col gap-4 max-w-xs md:max-w-sm">
+              <div className="px-3 py-1.5 bg-purple-100/60 rounded-lg text-purple-800 text-[11px] font-bold tracking-wider uppercase flex items-center justify-between border border-purple-200/40">
+                <span>STRATEGIC L3</span>
+                <span className="bg-purple-100 text-purple-900 text-[10px] px-1.5 py-0.2 rounded font-bold">
+                  {l3List.length} ATIVOS
+                </span>
+              </div>
+              
+              {l3List.map(issue => (
+                <div
+                  key={issue.id}
+                  id={`card-${issue.id}`}
+                  onClick={(e) => handleCardClick(issue.id, e)}
+                  className={`p-3 bg-white rounded-xl border transition-all cursor-pointer relative ${
+                    issue.blocked 
+                      ? 'border-red-300 shadow-sm shadow-red-50/50 bg-red-50/5' 
+                      : activeCard === issue.id 
+                        ? 'border-[#8a2d46] ring-1 ring-[#8a2d46]/20 shadow-md' 
+                        : 'border-slate-100 shadow-xs hover:border-slate-250 hover:shadow-sm'
                   }`}
                 >
-                  {/* Purple vertical accent bar inside the card */}
-                  <div className="absolute top-0 bottom-0 left-0 w-1.2 bg-purple-600 rounded-l-xl" />
+                  <div className={`absolute top-2 bottom-2 left-0 w-0.75 rounded-r ${
+                    issue.blocked 
+                      ? 'bg-red-500' 
+                      : 'bg-purple-500'
+                  }`} />
                   
-                  <div className="pl-2 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-extrabold text-[#8a2d46] text-sm tracking-tight leading-snug">
-                        Global Market Expansion
-                      </h3>
-                      <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Abrir no Redmine">
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
+                  <div className="pl-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider">
+                        {issue.id}
+                      </span>
+                      {issue.blocked && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" title="Bloqueado" />
+                      )}
                     </div>
-
-                    {/* Representative Person Info Block */}
-                    <div className="flex items-center gap-2">
-                      <img 
-                        src="https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&q=80&w=120" 
-                        alt="Sarah Jenkins" 
-                        className="w-6 h-6 rounded-full border border-slate-100 object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                      <span className="text-[11px] font-semibold text-slate-500">Sarah Jenkins (CEO)</span>
-                    </div>
-
-                    {/* Summary Metric Footer Line */}
-                    <div className="pt-2 border-t border-slate-100/70 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-400 font-medium">Linked L2 Projects</span>
-                      <span className="font-bold text-[#8a2d46]">2 Projects</span>
-                    </div>
+                    
+                    <h3 className="font-bold text-slate-800 text-xs tracking-tight leading-snug">
+                      {issue.subject}
+                    </h3>
                   </div>
-
-                  {/* Solid bottom accent highlight */}
-                  <div className="absolute bottom-0 left-1.2 right-0 h-1.2 bg-purple-500 rounded-b-xl opacity-80" />
                 </div>
-              ) : (
-                <div className="py-12 border border-dashed border-slate-200 text-center text-xs text-slate-400 italic rounded-xl bg-white/40">
-                  Ocultado por filtros
+              ))}
+              
+              {l3List.length === 0 && (
+                <div className="py-12 border border-dashed border-slate-250 text-center text-xs text-slate-400 italic rounded-xl bg-white/40">
+                  Nenhuma iniciativa L3
                 </div>
               )}
             </div>
 
-            {/* CONNECTOR PATHS AREA (SVG GRID OVERLAY) */}
-            <div className="hidden lg:block relative h-full w-full select-none">
-              {/* SVG paths rendering dependencies lines dynamically */}
-              {isL3MatchesFilters && (
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 120 400" preserveAspectRatio="none">
-                  {/* Curve to L2 upper */}
-                  {isL2UpperMatchesFilters && (
-                    <path 
-                      d="M 0 200 C 60 200, 60 100, 120 100" 
-                      stroke="#cbd5e1" 
-                      strokeWidth="2.5" 
-                      fill="none" 
-                      className="transition-all"
-                    />
-                  )}
-                  {/* Curve to L2 lower */}
-                  {isL2LowerMatchesFilters && (
-                    <path 
-                      d="M 0 200 C 60 200, 60 300, 120 300" 
-                      stroke="#cbd5e1" 
-                      strokeWidth="2.5" 
-                      fill="none" 
-                      className="transition-all"
-                    />
-                  )}
-                </svg>
-              )}
-            </div>
-
-            {/* COLUMN L2 */}
-            <div className="space-y-6 flex flex-col justify-around h-full">
-              <div className="px-3 py-1 bg-[#8a2d46]/10 rounded-lg text-[#8a2d46] text-[11px] font-bold tracking-wider uppercase flex items-center justify-between border border-[#8a2d46]/20">
+            {/* COLUMN L2 - COORDINATION */}
+            <div className="flex-1 flex flex-col gap-4 max-w-xs md:max-w-sm">
+              <div className="px-3 py-1.5 bg-[#8a2d46]/10 rounded-lg text-[#8a2d46] text-[11px] font-bold tracking-wider uppercase flex items-center justify-between border border-[#8a2d46]/20">
                 <span>COORDINATION L2</span>
-                <span className="bg-[#8a2d46] text-white text-[10px] px-1.5 py-0.2 rounded font-bold">2 ACTIVE</span>
+                <span className="bg-[#8a2d46] text-white text-[10px] px-1.5 py-0.2 rounded font-bold">
+                  {l2List.length} ATIVOS
+                </span>
               </div>
-
-              <div className="space-y-4">
-                
-                {/* L2 UPPER CARD: HEALTHY */}
-                {isL2UpperMatchesFilters ? (
-                  <div 
-                    onClick={(e) => handleCardClick('l2_upper', e)}
-                    className={`p-4 bg-white rounded-xl border transition-all cursor-pointer relative shadow-sm hover:translate-y-[-1px] hover:shadow-md ${
-                      activeCard === 'l2_upper' ? 'border-[#8a2d46] ring-2 ring-[#8a2d46]/10' : 'border-slate-200'
-                    }`}
-                  >
-                    <div className="absolute top-0 bottom-0 left-0 w-1.2 bg-[#8a2d46] rounded-l-xl" />
-                    
-                    <div className="pl-2 space-y-3">
-                      <div className="flex items-start justify-between gap-1">
-                        <h4 className="font-extrabold text-slate-800 text-xs tracking-tight leading-snug">
-                          Cloud Infra Migration
-                        </h4>
-                        <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Abrir no Redmine">
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold">
-                        <Link2 className="w-3 h-3 text-[#8a2d46]" />
-                        <span>L3: Global Market Expansion</span>
-                      </div>
-
-                      <div className="pt-1.5 border-t border-slate-50 flex items-center justify-between text-[11px]">
-                        <span className="text-slate-400 font-medium">Linked L1 Tasks</span>
-                        <span className="font-bold text-slate-700">14 Tasks</span>
-                      </div>
-
-                      {/* Completion bar */}
-                      <div className="w-full bg-slate-100 rounded-full h-1 mt-1">
-                        <div className="bg-[#8a2d46]/60 h-1 rounded-full w-[70%]" />
-                      </div>
-                    </div>
-                  </div>
-                ) : searchQuery && !'Cloud Infra Migration'.toLowerCase().includes(searchQuery.toLowerCase()) ? null : (
-                  <div className="p-4 border border-dashed border-slate-200 text-center text-xs text-slate-400 italic rounded-xl bg-white/40">
-                    Ocultado por filtros
-                  </div>
-                )}
-
-                {/* L2 LOWER CARD: BLOCKED */}
-                {isL2LowerMatchesFilters ? (
-                  <div 
-                    onClick={(e) => handleCardClick('l2_lower', e)}
-                    className={`p-4 bg-white rounded-xl border-2 transition-all cursor-pointer relative shadow-sm hover:translate-y-[-1px] hover:shadow-md ${
-                      activeCard === 'l2_lower' ? 'border-red-600 ring-2 ring-red-100' : 'border-red-600'
-                    }`}
-                  >
-                    <div className="absolute top-0 bottom-0 left-0 w-1.2 bg-red-600 rounded-l-xl" />
-                    
-                    <div className="pl-2 space-y-3">
-                      <div className="flex items-start justify-between gap-1">
-                        <div className="flex items-center gap-1.5">
-                          <AlertTriangle className="w-4 h-4 text-red-600" />
-                          <h4 className="font-extrabold text-slate-800 text-xs tracking-tight leading-snug">
-                            Data Compliance Hub
-                          </h4>
-                        </div>
-                        <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Abrir no Redmine">
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold">
-                        <Link2 className="w-3 h-3 text-[#8a2d46]" />
-                        <span>L3: Global Market Expansion</span>
-                      </div>
-
-                      <div className="pt-1.5 border-t border-slate-50 flex items-center justify-between text-[11px]">
-                        <span className="bg-red-100 text-red-700 text-[9px] px-1.5 py-0.5 rounded font-extrabold font-sans">
-                          BLOCKED BY L1
+              
+              {l2List.map(issue => (
+                <div
+                  key={issue.id}
+                  id={`card-${issue.id}`}
+                  onClick={(e) => handleCardClick(issue.id, e)}
+                  className={`p-3 bg-white rounded-xl border transition-all cursor-pointer relative ${
+                    issue.blocked 
+                      ? 'border-red-300 shadow-sm shadow-red-50/50 bg-red-50/5' 
+                      : activeCard === issue.id 
+                        ? 'border-[#8a2d46] ring-1 ring-[#8a2d46]/20 shadow-md' 
+                        : 'border-slate-100 shadow-xs hover:border-slate-250 hover:shadow-sm'
+                  }`}
+                >
+                  <div className={`absolute top-2 bottom-2 left-0 w-0.75 rounded-r ${
+                    issue.blocked 
+                      ? 'bg-red-500' 
+                      : 'bg-[#8a2d46]'
+                  }`} />
+                  
+                  <div className="pl-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider">
+                          {issue.id}
                         </span>
-                        <span className="font-bold text-slate-700">3 Tasks</span>
+                        {issue.parentId && (
+                          <span className="text-[8px] font-semibold text-slate-350 flex items-center gap-0.5">
+                            <Link2 className="w-2.5 h-2.5" /> {issue.parentId}
+                          </span>
+                        )}
                       </div>
-
-                      {/* Red warning progress bar */}
-                      <div className="w-full bg-slate-100 rounded-full h-1 mt-1">
-                        <div className="bg-red-500 h-1 rounded-full w-[45%]" />
-                      </div>
+                      {issue.blocked && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" title="Bloqueado" />
+                      )}
                     </div>
+                    
+                    <h4 className="font-bold text-slate-800 text-xs tracking-tight leading-snug">
+                      {issue.subject}
+                    </h4>
                   </div>
-                ) : searchQuery && !'Data Compliance Hub'.toLowerCase().includes(searchQuery.toLowerCase()) ? null : (
-                  <div className="p-4 border border-dashed border-slate-200 text-center text-xs text-slate-400 italic rounded-xl bg-white/40">
-                    Ocultado por filtros
-                  </div>
-                )}
+                </div>
+              ))}
+              
+              {l2List.length === 0 && (
+                <div className="py-12 border border-dashed border-slate-250 text-center text-xs text-slate-400 italic rounded-xl bg-white/40">
+                  Nenhuma iniciativa L2
+                </div>
+              )}
+            </div>
 
+            {/* COLUMN L1 - OPERATIONAL */}
+            <div className="flex-1 flex flex-col gap-4 max-w-xs md:max-w-sm">
+              <div className="px-3 py-1.5 bg-emerald-100/60 rounded-lg text-emerald-800 text-[11px] font-bold tracking-wider uppercase flex items-center justify-between border border-emerald-250/40">
+                <span>OPERATIONAL L1</span>
+                <span className="bg-emerald-500 text-white text-[10px] px-1.5 py-0.2 rounded font-bold">
+                  {l1List.length} ATIVOS
+                </span>
               </div>
+              
+              {l1List.map(issue => (
+                <div
+                  key={issue.id}
+                  id={`card-${issue.id}`}
+                  onClick={(e) => handleCardClick(issue.id, e)}
+                  className={`p-3 bg-white rounded-xl border transition-all cursor-pointer relative ${
+                    issue.blocked 
+                      ? 'border-red-300 shadow-sm shadow-red-50/50 bg-red-50/5' 
+                      : activeCard === issue.id 
+                        ? 'border-[#8a2d46] ring-1 ring-[#8a2d46]/20 shadow-md' 
+                        : 'border-slate-100 shadow-xs hover:border-slate-250 hover:shadow-sm'
+                  }`}
+                >
+                  <div className={`absolute top-2 bottom-2 left-0 w-0.75 rounded-r ${
+                    issue.blocked 
+                      ? 'bg-red-500' 
+                      : 'bg-emerald-500'
+                  }`} />
+                  
+                  <div className="pl-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider">
+                          {issue.id}
+                        </span>
+                        {issue.parentId && (
+                          <span className="text-[8px] font-semibold text-slate-350 flex items-center gap-0.5">
+                            <Link2 className="w-2.5 h-2.5" /> {issue.parentId}
+                          </span>
+                        )}
+                      </div>
+                      {issue.blocked && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" title="Bloqueado" />
+                      )}
+                    </div>
+                    
+                    <h4 className="font-medium text-slate-700 text-xs tracking-tight leading-snug">
+                      {issue.subject}
+                    </h4>
+                  </div>
+                </div>
+              ))}
+              
+              {l1List.length === 0 && (
+                <div className="py-12 border border-dashed border-slate-250 text-center text-xs text-slate-400 italic rounded-xl bg-white/40">
+                  Nenhuma tarefa L1
+                </div>
+              )}
             </div>
 
-            {/* SECOND CONNECTOR PATHS */}
-            <div className="hidden lg:block relative h-full w-full select-none">
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 400" preserveAspectRatio="none">
-                {/* Healthy connection going further right */}
-                {isL2UpperMatchesFilters && (
-                  <path d="M 0 100 L 100 60" stroke="#cbd5e1" strokeWidth="2.5" fill="none" />
-                )}
-                {isL2UpperMatchesFilters && (
-                  <path d="M 0 100 L 100 120" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3 3" fill="none" />
-                )}
-                {/* Blocked/red line from lower L2 going right */}
-                {isL2LowerMatchesFilters && (
-                  <path d="M 0 300 Q 50 280, 100 270" stroke="#dc2626" strokeWidth="2.5" fill="none" className="animate-pulse" />
-                )}
-              </svg>
-            </div>
-
-          </div>
+          </div> </div>
 
         </div>
 
-      </div>
-
       {/* 4. SELECTION DETAILS PANEL IN BASE ACCORDING TO USER INTERACTIONS */}
-      {activeCard && (
-        <div className="p-5 bg-[#fffcfc] text-slate-800 rounded-xl border border-[#8a2d46]/30 shadow-md space-y-4 animate-fade-in relative z-20">
+      {activeCard && selectedIssueData && (
+        <div className="p-5 bg-[#fffcfc] text-slate-800 rounded-xl border border-[#8a2d46]/30 shadow-md space-y-4 animate-fade-in relative z-20 text-left">
           <div className="flex items-center justify-between border-b pb-3 border-slate-100">
             <div>
-              <p className="text-[10px] font-bold tracking-wider uppercase text-[#8a2d46]">Inspeção Detalhada de Rotas</p>
-              <h3 className="text-sm font-bold text-slate-800">
-                {activeCard === 'l3' && 'Global Market Expansion'}
-                {activeCard === 'l2_upper' && 'Cloud Infra Migration'}
-                {activeCard === 'l2_lower' && 'Data Compliance Hub'}
+              <p className="text-[10px] font-bold tracking-wider uppercase text-[#8a2d46]">
+                Inspeção Detalhada: Flight Level {selectedIssueData.level}
+              </p>
+              <h3 className="text-sm font-bold text-slate-850 flex items-center gap-2">
+                <span className="font-mono bg-slate-100 text-slate-650 px-1.5 py-0.5 rounded text-[11px] font-bold">
+                  {selectedIssueData.id}
+                </span>
+                <span>{selectedIssueData.subject}</span>
               </h3>
             </div>
             <button 
@@ -615,52 +721,80 @@ export default function DependencyMap({
             <div className="space-y-2">
               <p className="font-bold text-slate-500">Mapeamento de Dependências Relacionadas</p>
               <ul className="space-y-2 text-[11px] text-slate-600">
-                {activeCard === 'l3' && (
-                  <>
-                    <li className="flex items-center gap-1.5 bg-slate-50 p-2 rounded">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#8a2d46]" />
-                      <span><b>Origem:</b> Global Market Expansion ➡️ <b>Projeto Filho:</b> Cloud Infra Migration</span>
-                    </li>
-                    <li className="flex items-center gap-1.5 bg-slate-50 p-2 rounded">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                      <span><b>Origem:</b> Global Market Expansion ➡️ <b>Projeto Filho (Bloqueado):</b> Data Compliance Hub</span>
-                    </li>
-                  </>
-                )}
-                {activeCard === 'l2_upper' && (
-                  <li className="flex items-center gap-1.5 bg-slate-50 p-2 rounded">
+                <li className="bg-slate-50 p-2.5 rounded border border-slate-100">
+                  <b>Projeto:</b> <span className="font-semibold text-[#8a2d46]">{selectedIssueData.project}</span>
+                </li>
+                {selectedIssueData.parentId && (
+                  <li className="flex items-center gap-1.5 bg-slate-50 p-2 rounded border border-slate-100">
                     <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-                    <span><b>Objetivo Geral (Pai):</b> Global Market Expansion (Conexão Direta Ativa)</span>
+                    <span>
+                      <b>Vínculo de Parentesco:</b> Pertence à demanda-pai <b className="font-mono text-indigo-650">{selectedIssueData.parentId}</b>
+                    </span>
                   </li>
                 )}
-                {activeCard === 'l2_lower' && (
-                  <>
-                    <li className="flex items-center gap-1.5 bg-slate-50 p-2 rounded text-red-700">
-                      <AlertTriangle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
-                      <span><b>Aviso de Gargalo:</b> Bloqueado por 3 tarefas operacionais de Segurança do Q2.</span>
-                    </li>
-                    <li className="flex items-center gap-1.5 bg-slate-50 p-2 rounded">
-                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-                      <span><b>Objetivo Geral (Pai):</b> Global Market Expansion</span>
-                    </li>
-                  </>
-                )}
+                {/* Find children */}
+                {(() => {
+                  const children = issues.filter(i => i.parentId === selectedIssueData.id);
+                  if (children.length > 0) {
+                    return (
+                      <li className="bg-slate-50 p-2 rounded border border-slate-100 space-y-1">
+                        <span className="font-bold block text-slate-600">Demandas Vinculadas ({children.length}):</span>
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          {children.map(child => (
+                            <span 
+                              key={child.id}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                child.blocked 
+                                  ? 'bg-red-50 text-red-700 border border-red-200' 
+                                  : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                              }`}
+                            >
+                              {child.id}
+                            </span>
+                          ))}
+                        </div>
+                      </li>
+                    );
+                  }
+                  return null;
+                })()}
               </ul>
             </div>
 
-            <div className="space-y-2 text-[11px] text-slate-600 bg-slate-50 p-3 rounded-lg">
+            <div className="space-y-2 text-[11px] text-slate-650 bg-slate-50 p-3.5 rounded-lg border border-slate-100">
               <p className="font-bold text-slate-700 mb-1">Status de Resolução de Risco</p>
-              {activeCard === 'l2_lower' ? (
+              {selectedIssueData.blocked ? (
                 <div className="space-y-1.5">
-                  <p className="text-red-700 font-semibold">🚨 Risco Crítico de Atraso Detectado (SLA Q2 Excedido)</p>
-                  <p>A iniciativa está retida aguardando as tarefas L1 em segurança de dados da equipe DevOps e do comitê corporativo de LGPD.</p>
+                  <p className="text-red-700 font-extrabold flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-650" />
+                    🚨 Gargalo Crítico Detectado (Bloqueado)
+                  </p>
+                  <p className="bg-red-50/50 p-2 rounded text-red-950 border border-red-100 italic">
+                    "{selectedIssueData.blockedReason || 'Impedimento sem descrição específica.'}"
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-1.5">
-                  <p className="text-emerald-700 font-semibold">✓ Fluxo de Entrega Estável e Saudável</p>
-                  <p>Todos os projetos sincronizados e em andamento reportam dependências diretas integradas sem gargalos corporativos.</p>
+                  <p className="text-emerald-700 font-bold flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    ✓ Fluxo de Entrega Estável e Saudável
+                  </p>
+                  <p className="text-slate-500">
+                    Esta iniciativa está ativa e reportando progresso sem impedimentos de terceiros.
+                  </p>
                 </div>
               )}
+              
+              <div className="pt-2 mt-2 border-t border-slate-200/60 grid grid-cols-2 gap-2 text-[10px]">
+                <div>
+                  <span className="text-slate-400 block">Responsável</span>
+                  <span className="font-bold text-slate-700">{selectedIssueData.assignee || 'Não atribuído'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Esforço (Pontos)</span>
+                  <span className="font-bold text-slate-700">{selectedIssueData.points || 'N/A'} pts</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
